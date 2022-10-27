@@ -5,6 +5,7 @@ use crate::com::stream::{recv_msg};
 use crate::serialize::{Serialize, Deserialize};
 use crate::cap::Selector;
 use crate::math;
+use crate::tiles::Activity;
 
 
 pub struct Sender {
@@ -21,9 +22,11 @@ impl Sender{
         Ok(Sender { sgate })
     }
 
-    pub fn activate(&mut self) -> Result<(), Error> {
-        self.sgate.activate()?;
-        Ok(())
+    pub fn activate() -> Result<Self, Error> {
+        let mut target = Activity::own().data_source();
+        let sgate = SendGate::new_bind(target.pop()?);
+        sgate.activate()?;
+        Ok(Sender { sgate })
     }
 
     pub fn cap_sel(&self) -> Selector {
@@ -41,16 +44,25 @@ impl Receiver {
         Ok(Receiver { rgate } )
     }
 
-    pub fn activate(&mut self) -> Result<(), Error> {
-        self.rgate.activate()?;
-        Ok(())
+    pub fn activate(order: usize, msg_order: usize) -> Result<Self, Error> {
+        let mut src = Activity::own().data_source();
+        let mut rgate = RecvGate::new_bind(
+            src.pop()?,
+            math::next_log2(order), 
+            math::next_log2(msg_order)); 
+        rgate.activate()?;
+        Ok(Receiver { rgate } )
+    }
+
+    pub fn activate_def() -> Result<Self, Error> {
+        Self::activate(256, 256)
     }
 
     pub fn cap_sel(&self) -> Selector {
         self.rgate.sel()
     }
 
-    pub fn sender(&self, credits: u32) -> Result<Sender, Error> {
+    fn sender(&self, credits: u32) -> Result<Sender, Error> {
         Sender::new(&self.rgate, credits)
     }
 

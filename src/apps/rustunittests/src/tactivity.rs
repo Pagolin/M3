@@ -26,6 +26,9 @@ use m3::time::TimeDuration;
 
 use m3::{send_vmsg, wv_assert_eq, wv_assert_ok, wv_run_test};
 
+use m3::com::channel;
+use m3::errors::Error;
+
 pub fn run(t: &mut dyn WvTester) {
     wv_run_test!(t, run_stop);
     wv_run_test!(t, run_arguments);
@@ -135,6 +138,45 @@ fn run_send_receive(t: &mut dyn WvTester) {
     wv_assert_ok!(send_vmsg!(&sgate, RecvGate::def(), 42, 23));
 
     wv_assert_eq!(t, act.wait(), Ok(42 + 23));
+}
+
+fn run_send_receive_chan(t: &mut dyn WvTester) {
+    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let mut act = wv_assert_ok!(ChildActivity::new_with(tile, ActivityArgs::new("test")));
+
+    let (tx, rx) = wv_assert_ok!(channel::channel_def());
+    let (res_tx, res_rx) = wv_assert_ok!(channel::channel_def());
+
+    // TODO hide this in channel creation
+    wv_assert_ok!(act.delegate_obj(rx.cap_sel()));
+    wv_assert_ok!(act.delegate_obj(res_tx.cap_sel()));
+
+    let mut act_sel = act.data_sink();
+    act_sel.push(rx.cap_sel());
+    act_sel.push(res_tx.cap_sel());
+
+    let future = wv_assert_ok!(act.run(|| {
+        let f = || -> Result<(), Error> {
+            let rx = channel::Receiver::activate_def()?;
+            let res_tx = channel::Sender::activate()?;
+
+            let i1 = rx.recv::<u32>()?;
+            let res = (i1 + 5) as i32;
+
+            res_tx.send(res)?;
+            Ok(())
+        };
+        f().map(|_| 0).unwrap() // currently necessary because of the API
+    }));
+
+    //wv_assert_ok!(tx.activate());
+    //wv_assert_ok!(res_rx.activate());
+
+    wv_assert_ok!(tx.send::<u32>(42));
+    wv_assert_ok!(future.wait());
+
+    let res :i32 = res_rx.recv().unwrap();
+    wv_assert_eq!(t, res, 42 + 5);
 }
 
 #[cfg(not(target_vendor = "host"))]

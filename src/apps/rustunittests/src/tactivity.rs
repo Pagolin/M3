@@ -27,6 +27,7 @@ use m3::time::TimeDuration;
 use m3::{send_vmsg, wv_assert_eq, wv_assert_ok, wv_run_test};
 
 use m3::com::channel;
+use m3::com::channel::Register;
 use m3::errors::Error;
 
 pub fn run(t: &mut dyn WvTester) {
@@ -147,13 +148,8 @@ fn run_send_receive_chan(t: &mut dyn WvTester) {
     let (tx, rx) = wv_assert_ok!(channel::channel_def());
     let (res_tx, res_rx) = wv_assert_ok!(channel::channel_def());
 
-    // TODO hide this in channel creation
-    wv_assert_ok!(act.delegate_obj(rx.cap_sel()));
-    wv_assert_ok!(act.delegate_obj(res_tx.cap_sel()));
-
-    let mut act_sel = act.data_sink();
-    act_sel.push(rx.cap_sel());
-    act_sel.push(res_tx.cap_sel());
+    wv_assert_ok!(rx.register(&mut act));
+    wv_assert_ok!(res_tx.register(&mut act));
 
     let future = wv_assert_ok!(act.run(|| {
         let f = || -> Result<(), Error> {
@@ -168,9 +164,6 @@ fn run_send_receive_chan(t: &mut dyn WvTester) {
         };
         f().map(|_| 0).unwrap() // currently necessary because of the API
     }));
-
-    //wv_assert_ok!(tx.activate());
-    //wv_assert_ok!(res_rx.activate());
 
     wv_assert_ok!(tx.send::<u32>(42));
     wv_assert_ok!(future.wait());

@@ -20,6 +20,7 @@
 
 mod activity;
 mod childactivity;
+pub mod iso;
 mod kmem;
 mod mapper;
 mod ownactivity;

@@ -27,17 +27,18 @@ use m3::time::TimeDuration;
 use m3::{send_vmsg, wv_assert_eq, wv_assert_ok, wv_run_test};
 
 use m3::com::channel;
-use m3::com::channel::Register;
+use m3::activity;
 use m3::errors::Error;
 
 pub fn run(t: &mut dyn WvTester) {
-    wv_run_test!(t, run_stop);
+/*    wv_run_test!(t, run_stop);
     wv_run_test!(t, run_arguments);
-    wv_run_test!(t, run_send_receive);
-    #[cfg(not(target_vendor = "host"))]
+    wv_run_test!(t, run_send_receive); */
+    wv_run_test!(t, run_send_receive_chan);
+/*    #[cfg(not(target_vendor = "host"))]
     wv_run_test!(t, exec_fail);
     wv_run_test!(t, exec_hello);
-    wv_run_test!(t, exec_rust_hello);
+    wv_run_test!(t, exec_rust_hello); */
 }
 
 fn run_stop(_t: &mut dyn WvTester) {
@@ -142,19 +143,31 @@ fn run_send_receive(t: &mut dyn WvTester) {
 }
 
 fn run_send_receive_chan(t: &mut dyn WvTester) {
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
-    let mut act = wv_assert_ok!(ChildActivity::new_with(tile, ActivityArgs::new("test")));
-
+   // let mut act = iso::ChildActivity::new().unwrap();
     let (tx, rx) = wv_assert_ok!(channel::channel_def());
     let (res_tx, res_rx) = wv_assert_ok!(channel::channel_def());
 
-    wv_assert_ok!(rx.register(&mut act));
-    wv_assert_ok!(res_tx.register(&mut act));
+    // new approach: a macro for hinding everything!
+    let future = wv_assert_ok!( 
+        activity!(
+            |rx0: channel::Receiver, res_tx0: channel::Sender| {
+                let i1 = rx0.recv::<u32>()?;
+                let res = (i1 + 5) as i32;
+
+                res_tx0.send(res)?;
+                Ok(())
+            }(rx, res_tx)
+            ));
+
+/*
+    act.register(&rx).unwrap();
+    act.register(&res_tx).unwrap();
 
     let future = wv_assert_ok!(act.run(|| {
         let f = || -> Result<(), Error> {
-            let rx = channel::Receiver::activate_def()?;
-            let res_tx = channel::Sender::activate()?;
+            let mut own_act = iso::OwnActivity::new();
+            let rx:channel::Receiver = own_act.activate()?;
+            let res_tx:channel::Sender = own_act.activate()?;
 
             let i1 = rx.recv::<u32>()?;
             let res = (i1 + 5) as i32;
@@ -164,7 +177,7 @@ fn run_send_receive_chan(t: &mut dyn WvTester) {
         };
         f().map(|_| 0).unwrap() // currently necessary because of the API
     }));
-
+*/
     wv_assert_ok!(tx.send::<u32>(42));
     wv_assert_ok!(future.wait());
 

@@ -48,7 +48,7 @@ mod ttreap;
 #[no_mangle]
 pub fn main() -> i32 {
     let mut tester = DefaultWvTester::default();
-    wv_run_suite!(tester, tboxlist::run);
+/*    wv_run_suite!(tester, tboxlist::run);
     wv_run_suite!(tester, tbufio::run);
     wv_run_suite!(tester, tdir::run);
     wv_run_suite!(tester, tdlist::run);
@@ -70,7 +70,7 @@ pub fn main() -> i32 {
     #[cfg(not(target_vendor = "host"))]
     wv_run_suite!(tester, tsrvmsgs::run);
     wv_run_suite!(tester, tsyscalls::run);
-    wv_run_suite!(tester, ttreap::run);
+    wv_run_suite!(tester, ttreap::run); */
     wv_run_suite!(tester, tactivity::run);
     println!("{}", tester);
     0

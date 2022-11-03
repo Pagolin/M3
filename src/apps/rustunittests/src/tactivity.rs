@@ -31,15 +31,15 @@ use m3::activity;
 use m3::errors::Error;
 
 pub fn run(t: &mut dyn WvTester) {
-/*    wv_run_test!(t, run_stop);
+    wv_run_test!(t, run_stop);
     wv_run_test!(t, run_arguments);
-    wv_run_test!(t, run_send_receive); */
+    wv_run_test!(t, run_send_receive);
     wv_run_test!(t, run_send_receive_chan);
     wv_run_test!(t, run_send_receive_iso);
-/*    #[cfg(not(target_vendor = "host"))]
+    #[cfg(not(target_vendor = "host"))]
     wv_run_test!(t, exec_fail);
     wv_run_test!(t, exec_hello);
-    wv_run_test!(t, exec_rust_hello); */
+    wv_run_test!(t, exec_rust_hello);
 }
 
 fn run_stop(_t: &mut dyn WvTester) {
@@ -183,11 +183,15 @@ fn run_send_receive_chan(t: &mut dyn WvTester) {
                     }?;
           
                 tx.activate()?;
-                tx.send::<u32>(42)?;
                 res_rx.activate()?; // latest for activating result channel
-                future.wait()?;
-            
+                
+                // since there is no buffering inside the channels,
+                // all communication needs to be done before we wait
+                // for the activities to finish.
+                tx.send::<u32>(42)?;
                 let res :i32 = res_rx.recv()?;
+
+                future.wait()?;
                 Ok(res)
             })()
         );
@@ -226,13 +230,16 @@ fn run_send_receive_iso(t: &mut dyn WvTester) {
                             Ok(())
                         }(rx, res_tx)
                     )?;
-            
                 tx.activate()?;
-                tx.send::<u32>(42)?;
                 res_rx.activate()?; // latest for activating result channel
+                
+                // since there is no buffering inside the channels,
+                // all communication needs to be done before we wait
+                // for the activities to finish.
+                tx.send::<u32>(42)?;
+                let res :i32 = res_rx.recv()?;
+
                 future.wait()?;
-            
-                let res: i32 = res_rx.recv()?;
                 Ok(res)
             })()
         );

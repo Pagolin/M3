@@ -1,5 +1,5 @@
 use crate::cap::Selector;
-use crate::errors::Error;
+use crate::errors::{Error, Code};
 use crate::com::{RecvGate, SendGate, SGateArgs};
 use crate::com::stream::{recv_msg};
 use crate::serialize::{Serialize, Deserialize};
@@ -22,7 +22,8 @@ impl Sender{
     }
 
     pub fn send<T: Serialize>(&self, data: T) -> Result<(), Error> {
-        send_vmsg!(&self.sgate, RecvGate::def(), data)
+        send_recv_res!(&self.sgate, RecvGate::def(), data)?;
+        Ok(())
     }
 
     pub fn activate(&self) -> Result<tcu::EpId, Error> {
@@ -56,7 +57,9 @@ impl Receiver {
     }
 
     pub fn recv<T: Deserialize<'static>>(&self) -> Result<T,Error> {
-        recv_msg(&self.rgate)?.pop::<T>()
+        let mut s = recv_msg(&self.rgate)?;
+        reply_vmsg!(s, Code::None); // return credits for sending
+        s.pop::<T>()
     }
 
     pub fn activate(&mut self) -> Result<(), Error> {

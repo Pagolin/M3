@@ -5,6 +5,7 @@ use crate::com::stream::{recv_msg};
 use crate::serialize::{Serialize, Deserialize};
 use crate::math;
 use crate::tiles::iso::{Capable, Activatable};
+use crate::tcu;
 
 pub struct Sender {
     sgate: SendGate
@@ -23,10 +24,14 @@ impl Sender{
     pub fn send<T: Serialize>(&self, data: T) -> Result<(), Error> {
         send_vmsg!(&self.sgate, RecvGate::def(), data)
     }
+
+    pub fn activate(&self) -> Result<tcu::EpId, Error> {
+        self.sgate.activate()
+    }
 }
 
 impl Activatable for Sender {
-    fn activate(sel: Selector) -> Result<Self, Error> {
+    fn activate_from_selector(sel: Selector) -> Result<Self, Error> {
         let sgate = SendGate::new_bind(sel);
         sgate.activate()?;
         Ok(Sender { sgate })
@@ -53,10 +58,14 @@ impl Receiver {
     pub fn recv<T: Deserialize<'static>>(&self) -> Result<T,Error> {
         recv_msg(&self.rgate)?.pop::<T>()
     }
+
+    pub fn activate(&mut self) -> Result<(), Error> {
+        self.rgate.activate()
+    }
 }
 
 impl Activatable for Receiver {
-    fn activate(sel: Selector) -> Result<Self, Error> {
+    fn activate_from_selector(sel: Selector) -> Result<Self, Error> {
         let mut rgate = RecvGate::new_bind(
             sel,
             math::next_log2(256), 
@@ -72,14 +81,14 @@ impl Capable for Receiver {
     }
 }
 
-pub fn channel(order: usize, msg_order: usize, credits: u32) -> Result<(Sender, Receiver), Error> {
+pub fn channel_with(order: usize, msg_order: usize, credits: u32) -> Result<(Sender, Receiver), Error> {
     let rx = Receiver::new(order, msg_order)?;
     let tx = rx.sender(credits)?;
     Ok((tx, rx))
 }
 
-pub fn channel_def() -> Result<(Sender, Receiver), Error> {
-    channel(256, 256, 1)
+pub fn channel() -> Result<(Sender, Receiver), Error> {
+    channel_with(256, 256, 1)
 }
 
 

@@ -6,7 +6,7 @@ use crate::serialize::M3Deserializer;
 
 
 pub trait Activatable {
-    fn activate(sel: Selector) -> Result<Self, Error> where Self: Sized;
+    fn activate_from_selector(sel: Selector) -> Result<Self, Error> where Self: Sized;
 }
 
 pub trait Capable {
@@ -53,7 +53,7 @@ impl<'a> OwnActivity<'a> {
 
     pub fn activate<T:Activatable>(&mut self) -> Result<T, Error> {
         let sel = self.reg.pop()?;
-        T::activate(sel)
+        T::activate_from_selector(sel)
     }
 }
 
@@ -62,10 +62,9 @@ macro_rules! activity {
     (| $($chans:ident : $types:ty),+ | $b:block ( $($def_chans:ident),+ ) ) => {
         {
             use $crate::tiles::iso;
-            use $crate::tiles::iso::Capable;
 
-            let mut act = iso::ChildActivity::new().unwrap();
-            $( act.delegate_cap(&$def_chans).unwrap(); )+
+            let mut act = iso::ChildActivity::new()?;
+            $( act.delegate_cap(&$def_chans)?; )+
             let mut sink = act.new_sink();
             $( iso::sink(&mut sink, &$def_chans); )+
        

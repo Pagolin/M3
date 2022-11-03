@@ -35,6 +35,7 @@ pub fn run(t: &mut dyn WvTester) {
     wv_run_test!(t, run_arguments);
     wv_run_test!(t, run_send_receive); */
     wv_run_test!(t, run_send_receive_chan);
+    wv_run_test!(t, run_send_receive_iso);
 /*    #[cfg(not(target_vendor = "host"))]
     wv_run_test!(t, exec_fail);
     wv_run_test!(t, exec_hello);
@@ -142,65 +143,99 @@ fn run_send_receive(t: &mut dyn WvTester) {
     wv_assert_eq!(t, act.wait(), Ok(42 + 23));
 }
 
+/// This test case uses solely the [`channel`] abstraction.
+/// The ['channel'] abstraction is aligned as much as possible with Rust's [`mpsc::channel] API. It
+/// essentially replaces the abstraction of gates.
+/// (It also shows the expanded code of the [`activity`] macro in the next test case.)
 fn run_send_receive_chan(t: &mut dyn WvTester) {
-    let (tx, rx) = wv_assert_ok!(channel::channel_def());
-    let (res_tx, res_rx) = wv_assert_ok!(channel::channel_def());
-  
-    let future = wv_assert_ok!(
-        {
-            use m3::tiles::iso;
-            use m3::tiles::iso::Capable;
-
-            let mut act = iso::ChildActivity::new().unwrap(); // FIXME support ? in test
-            act.delegate_cap(&rx).unwrap(); // FIXME support ? in test
-            act.delegate_cap(&res_tx).unwrap(); // FIXME support ? in test
+    let res =
+        wv_assert_ok!(
+            (|| -> Result<i32, Error> {
+                let (tx, rx) = channel::channel()?;
+                let (res_tx, mut res_rx) = channel::channel()?;
+          
+                let future =
+                    {
+                        use m3::tiles::iso;
+                        use m3::tiles::iso::Capable;
             
-            let mut sink = act.new_sink();
-            iso::sink(&mut sink, &rx);
-            iso::sink(&mut sink, &res_tx);
-
-            act.act.run(|| {
-                let f = || -> Result<(), Error> {
-                    let mut source = iso::OwnActivity::new();
-                    let rx0:channel::Receiver = source.activate()?;
-                    let res_tx0:channel::Sender = source.activate()?;
-
-                    let i1 = rx0.recv::<u32>()?;
-                    let res = (i1 + 5) as i32;
-                    res_tx0.send(res)?;
-                    Ok(())
-                };
-                f().map(|_| 0).unwrap() // currently necessary because of the API
-            })
-        }
-    );
-
-    wv_assert_ok!(tx.send::<u32>(42));
-    wv_assert_ok!(future.wait());
-
-    let res :i32 = res_rx.recv().unwrap();
+                        let mut act = iso::ChildActivity::new()?;
+                        act.delegate_cap(&rx)?;
+                        act.delegate_cap(&res_tx)?;
+                        
+                        let mut sink = act.new_sink();
+                        iso::sink(&mut sink, &rx);
+                        iso::sink(&mut sink, &res_tx);
+            
+                        act.act.run(|| {
+                            let f = || -> Result<(), Error> {
+                                let mut source = iso::OwnActivity::new();
+                                let rx0:channel::Receiver = source.activate()?;
+                                let res_tx0:channel::Sender = source.activate()?;
+            
+                                let i1 = rx0.recv::<u32>()?;
+                                let res = (i1 + 5) as i32;
+                                res_tx0.send(res)?;
+                                Ok(())
+                            };
+                            f().map(|_| 0).unwrap() // currently necessary because of the API
+                        })
+                    }?;
+          
+                tx.activate()?;
+                tx.send::<u32>(42)?;
+                res_rx.activate()?; // latest for activating result channel
+                future.wait()?;
+            
+                let res :i32 = res_rx.recv()?;
+                Ok(res)
+            })()
+        );
     wv_assert_eq!(t, res, 42 + 5);
 }
 
+/// This test case also uses the [`activity`] abstraction which takes care of
+/// child activity creation, capability delegation, passing channels to the child activity and
+/// reloading the channels on the child activity.
+/// Note that the syntax is absolutely valid Rust code:
+/// ```
+/// (|rx0: channel::Receiver, tx0: channel::Sender|   // definition of the anonymous function
+/// {                                                 
+///   /* activity code goes here */                     
+/// })
+/// (rx, tx)                                         // calling the anonymous function
+/// ```
+/// The code resembles a call to a closure which essentially defines what is being executed on the
+/// activity.
+/// The activity return type is [`Result<T, Error>`] where [`T`] is a type of your choosing.
+/// Note that currently M3 does not support transferring errors from an activity to the root
+/// activity.
 fn run_send_receive_iso(t: &mut dyn WvTester) {
-    let (tx, rx) = wv_assert_ok!(channel::channel_def());
-    let (res_tx, res_rx) = wv_assert_ok!(channel::channel_def());
-
-    // new approach: a macro for hinding everything!
-    let future = wv_assert_ok!( 
-        activity!(
-            |rx0: channel::Receiver, res_tx0: channel::Sender| {
-                let i1 = rx0.recv::<u32>()?;
-                let res = (i1 + 5) as i32;
-                res_tx0.send(res)?;
-                Ok(())
-            }(rx, res_tx)
-            ));
-
-    wv_assert_ok!(tx.send::<u32>(42));
-    wv_assert_ok!(future.wait());
-
-    let res :i32 = res_rx.recv().unwrap();
+    let res =
+        wv_assert_ok!(
+            (|| -> Result<i32, Error> {
+                let (tx, rx) = channel::channel()?;
+                let (res_tx, mut res_rx) = channel::channel()?;
+            
+                let future =
+                    activity!(
+                        |rx0: channel::Receiver, res_tx0: channel::Sender| {
+                            let i1 = rx0.recv::<u32>()?;
+                            let res = (i1 + 5) as i32;
+                            res_tx0.send(res)?;
+                            Ok(())
+                        }(rx, res_tx)
+                    )?;
+            
+                tx.activate()?;
+                tx.send::<u32>(42)?;
+                res_rx.activate()?; // latest for activating result channel
+                future.wait()?;
+            
+                let res: i32 = res_rx.recv()?;
+                Ok(res)
+            })()
+        );
     wv_assert_eq!(t, res, 42 + 5);
 }
 

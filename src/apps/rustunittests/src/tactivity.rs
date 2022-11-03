@@ -143,7 +143,46 @@ fn run_send_receive(t: &mut dyn WvTester) {
 }
 
 fn run_send_receive_chan(t: &mut dyn WvTester) {
-   // let mut act = iso::ChildActivity::new().unwrap();
+    let (tx, rx) = wv_assert_ok!(channel::channel_def());
+    let (res_tx, res_rx) = wv_assert_ok!(channel::channel_def());
+  
+    let future = wv_assert_ok!(
+        {
+            use m3::tiles::iso;
+            use m3::tiles::iso::Capable;
+
+            let mut act = iso::ChildActivity::new().unwrap(); // FIXME support ? in test
+            act.delegate_cap(&rx).unwrap(); // FIXME support ? in test
+            act.delegate_cap(&res_tx).unwrap(); // FIXME support ? in test
+            
+            let mut sink = act.new_sink();
+            iso::sink(&mut sink, &rx);
+            iso::sink(&mut sink, &res_tx);
+
+            act.act.run(|| {
+                let f = || -> Result<(), Error> {
+                    let mut source = iso::OwnActivity::new();
+                    let rx0:channel::Receiver = source.activate()?;
+                    let res_tx0:channel::Sender = source.activate()?;
+
+                    let i1 = rx0.recv::<u32>()?;
+                    let res = (i1 + 5) as i32;
+                    res_tx0.send(res)?;
+                    Ok(())
+                };
+                f().map(|_| 0).unwrap() // currently necessary because of the API
+            })
+        }
+    );
+
+    wv_assert_ok!(tx.send::<u32>(42));
+    wv_assert_ok!(future.wait());
+
+    let res :i32 = res_rx.recv().unwrap();
+    wv_assert_eq!(t, res, 42 + 5);
+}
+
+fn run_send_receive_iso(t: &mut dyn WvTester) {
     let (tx, rx) = wv_assert_ok!(channel::channel_def());
     let (res_tx, res_rx) = wv_assert_ok!(channel::channel_def());
 
@@ -153,31 +192,11 @@ fn run_send_receive_chan(t: &mut dyn WvTester) {
             |rx0: channel::Receiver, res_tx0: channel::Sender| {
                 let i1 = rx0.recv::<u32>()?;
                 let res = (i1 + 5) as i32;
-
                 res_tx0.send(res)?;
                 Ok(())
             }(rx, res_tx)
             ));
 
-/*
-    act.register(&rx).unwrap();
-    act.register(&res_tx).unwrap();
-
-    let future = wv_assert_ok!(act.run(|| {
-        let f = || -> Result<(), Error> {
-            let mut own_act = iso::OwnActivity::new();
-            let rx:channel::Receiver = own_act.activate()?;
-            let res_tx:channel::Sender = own_act.activate()?;
-
-            let i1 = rx.recv::<u32>()?;
-            let res = (i1 + 5) as i32;
-
-            res_tx.send(res)?;
-            Ok(())
-        };
-        f().map(|_| 0).unwrap() // currently necessary because of the API
-    }));
-*/
     wv_assert_ok!(tx.send::<u32>(42));
     wv_assert_ok!(future.wait());
 

@@ -31,21 +31,14 @@ impl ChildActivity {
         self.act.delegate_obj(t.sel())
     }
 
-    pub fn new_sink(&mut self) -> ChannelSink<'_> {
-        ChannelSink {
-            sink: self.act.data_sink()
-        }
+    pub fn new_sink(&mut self) -> M3Serializer<VecSink<'_>> {
+        self.act.data_sink()
     }
 }
 
-pub struct ChannelSink<'a> {
-    sink: M3Serializer<VecSink<'a>>
-}
-
-impl<'a> ChannelSink<'a> {
-    pub fn sink<T: Capable>(&'a mut self, t: &T) {
-        self.sink.push(t.sel())
-    }
+// I keep this function to make the trait dependency explicit.
+pub fn sink<T: Capable>(sink: &mut M3Serializer<VecSink<'_>>, t: &T) {
+    sink.push(t.sel())
 }
 
 pub struct OwnActivity<'a> {
@@ -65,64 +58,21 @@ impl<'a> OwnActivity<'a> {
 }
 
 #[macro_export]
-macro_rules! delegate_channel_caps {
-    ($act:ident, $chan:ident) => {
-        $act.delegate_cap(&$chan).unwrap(); // FIXME use ?
-    };
-
-    ($sink:ident, $chan:ident, $($chans:ident),+) => {
-        {
-            delegate_channel_caps!($sink, $chan);
-            delegate_channel_caps!($sink, $($chans),+ );
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! sink_channels {
-    ($sink:ident, $chan:ident) => {
-        $sink.sink(&$chan);
-    };
-
-    ($sink:ident, $chan:ident, $($chans:ident),+) => {
-        {
-            sink_channels!($sink, $chan);
-            sink_channels!($sink, $($chans),+ );
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! source_channels {
-    ($source:ident, $chan:ident : $type:ty) => {
-        let $chan:$type = $source.activate()?;
-    };
-
-    ($source:ident, $chan:ident : $type:ty, $($chans:ident : $types:ty),+) => {
-        {
-            source_channels!($source, $chan : $type);
-            source_channels!($source, $($chans : $types),+ );
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! activity {
-    (|$($chans:ident : $types:ty),+| $b:block ($($def_chans:ident),+) ) => {
+    (| $($chans:ident : $types:ty),+ | $b:block ( $($def_chans:ident),+ ) ) => {
         {
-            use m3::{source_channels, sink_channels, delegate_channel_caps};
-            use m3::tiles::iso;
+            use $crate::tiles::iso;
+            use $crate::tiles::iso::Capable;
 
-            let act = iso::ChildActivity::new().unwrap();// FIXME use ?
-            delegate_channel_caps!(act, $($def_chans),+);
+            let mut act = iso::ChildActivity::new().unwrap();
+            $( act.delegate_cap(&$def_chans).unwrap(); )+
             let mut sink = act.new_sink();
-            sink_channels!(sink, $($def_chans),+ );
+            $( iso::sink(&mut sink, &$def_chans); )+
        
             act.act.run(|| {   
                 let f = || -> Result<(), Error> {
                     let mut source = iso::OwnActivity::new();
-                    source_channels!(source, $($chans : $types),+ );
-                
+                    $( let $chans : $types = source.activate()?; )+
                     $b
                 };
                 f().map(|_| 0).unwrap() // currently necessary because of the API

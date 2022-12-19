@@ -13,3 +13,4 @@
 /run
 /dddg_parse_progress.out
 /out.csv
+*.lock

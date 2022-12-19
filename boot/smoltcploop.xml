@@ -1,0 +1,10 @@
+<config>
+    <kernel args="kernel" />
+    <dom>
+        <app args="root">
+            <dom>
+                <app args="smoltcploop" />
+            </dom>
+        </app>
+    </dom>
+</config>

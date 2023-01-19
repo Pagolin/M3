@@ -3,7 +3,7 @@
     <dom>
         <app args="root">
             <dom>
-                <app args="smoltcploop" />
+                <app args="kv_store" />
             </dom>
         </app>
     </dom>

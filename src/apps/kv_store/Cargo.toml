@@ -1,0 +1,13 @@
+[package]
+name = "kv_store"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+path = "src/loop_main.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+m3 = { path = "../../libs/rust/m3" }
+smoltcp = { path = "./smoltcp", default-features = false, features = [ "ohua", "log", "alloc", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw", "medium-ethernet" ] }
+

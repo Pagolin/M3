@@ -1,0 +1,88 @@
+[package]
+name = "smoltcp"
+version = "0.8.0"
+edition = "2018"
+rust-version = "1.60"
+authors = ["whitequark <whitequark@whitequark.org>"]
+description = "A TCP/IP stack designed for bare-metal, real-time systems without a heap."
+documentation = "https://docs.rs/smoltcp/"
+homepage = "https://github.com/smoltcp-rs/smoltcp"
+repository = "https://github.com/smoltcp-rs/smoltcp.git"
+readme = "README.md"
+keywords = ["ip", "tcp", "udp", "ethernet", "network"]
+categories = ["embedded", "network-programming"]
+license = "0BSD"
+# Each example should have an explicit `[[example]]` section here to
+# ensure that the correct features are enabled.
+autoexamples = false
+
+[dependencies]
+managed = { version = "0.8", default-features = false, features = ["map"] }
+byteorder = { version = "1.0", default-features = false }
+log = { version = "0.4.4", default-features = false, optional = true }
+libc = { version = "0.2.18", optional = true }
+bitflags = { version = "1.0", default-features = false }
+defmt = { version = "0.3", optional = true }
+cfg-if = "1.0.0"
+heapless = "0.7.8"
+m3 = { path = "../../../libs/rust/m3"}
+
+
+[dev-dependencies]
+env_logger = "0.9"
+getopts = "0.2"
+rand = "0.8"
+url = "2.0"
+
+
+[features]
+std = ["managed/std"]
+alloc = ["managed/alloc"]
+verbose = []
+"medium-ethernet" = ["socket"]
+"medium-ip" = ["socket"]
+"medium-ieee802154" = ["socket", "proto-sixlowpan"]
+
+"phy-raw_socket" = ["std", "libc"]
+"phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
+
+"proto-ipv4" = []
+"proto-ipv4-fragmentation" = ["proto-ipv4"]
+"proto-igmp" = ["proto-ipv4"]
+"proto-dhcpv4" = ["proto-ipv4"]
+"proto-ipv6" = []
+"proto-sixlowpan" = ["proto-ipv6"]
+"proto-sixlowpan-fragmentation" = ["proto-sixlowpan"]
+"proto-dns" = []
+
+"socket" = []
+"socket-raw" = ["socket"]
+"socket-udp" = ["socket"]
+"socket-tcp" = ["socket"]
+"socket-icmp" = ["socket"]
+"socket-dhcpv4" = ["socket", "medium-ethernet", "proto-dhcpv4"]
+"socket-dns" = ["socket", "proto-dns"]
+
+"async" = []
+
+"ohua" = ["socket-tcp"]
+
+
+
+
+default = [
+  "std", "log", # needed for `cargo test --no-default-features --features default` :/
+  "medium-ethernet", "medium-ip", "medium-ieee802154",
+  "phy-raw_socket", "phy-tuntap_interface",
+
+  "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
+  "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns",
+  "async",
+  "ohua",
+]
+
+# experimental; do not use; no guarantees provided that this feature will be kept
+"rust-1_28" = []
+[profile.release]
+debug = 2

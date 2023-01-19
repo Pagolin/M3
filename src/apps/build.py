@@ -26,7 +26,7 @@ dirs = [
     'ruststandalone',
     'rustunittests',
     'shell',
-    'smoltcploop',
+    'kv_store',
     'spammer',
     'standalone',
     'timertest',

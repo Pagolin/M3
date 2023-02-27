@@ -21,7 +21,7 @@ use m3::rc::Rc;
 use m3::vec::Vec;
 
 use smoltcp::time::Instant;
-
+use crate::ohua_rewrites::device;
 mod defines;
 mod e1000;
 mod eeprom;
@@ -43,7 +43,7 @@ impl E1000Device {
     }
 }
 
-impl<'a> smoltcp::phy::Device<'a> for E1000Device {
+impl<'a> device::Device<'a> for E1000Device {
     type RxToken = RxToken;
     type TxToken = TxToken;
 

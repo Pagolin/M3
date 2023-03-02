@@ -9,5 +9,6 @@ crate-type = ["staticlib"]
 
 [dependencies]
 m3 = { path = "../../libs/rust/m3" }
-smoltcp = { path = "./smoltcp", default-features = false, features = [ "ohua", "log", "alloc", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw", "medium-ethernet" ] }
+# smoltcp = { path = "./smoltcp", default-features = false, features = [ "ohua", "log", "alloc", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw", "medium-ethernet" ] }
+smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp.git", tag = "v0.8.0", default-features = false, features = [ "log", "alloc", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw", "medium-ethernet" ] }
 

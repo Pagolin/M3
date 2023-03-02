@@ -74,9 +74,9 @@ fn main() {
     // involved which we'd need to replace
 
     let mut neighbor_cache_entries = [None; 8];
-    let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
+    let neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
-    let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
+    let ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
     let mut sockets: [_; 2] = Default::default();
     let mut iface = InterfaceBuilder::new(device, &mut sockets[..])
         .hardware_addr(EthernetAddress::default().into())

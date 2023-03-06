@@ -36,8 +36,8 @@ use m3::time::{TimeDuration, TimeInstant};
 use m3::{env, reply_vmsg};
 use m3::{log, println};
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes, SocketHandle};
-use smoltcp::wire::{EthernetAddress, IpAddress, Ipv4Cidr};
+use local_smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes, SocketHandle};
+use local_smoltcp::wire::{EthernetAddress, IpAddress, Ipv4Cidr};
 
 use crate::driver::DriverInterface;
 use crate::sess::NetworkSession;
@@ -47,6 +47,7 @@ mod driver;
 mod ports;
 mod sess;
 mod smoltcpif;
+//mod ohua_rewrites;
 
 pub const LOG_ERR: bool = true;
 pub const LOG_DEF: bool = true;
@@ -87,7 +88,7 @@ struct NetHandler<'a> {
     sel: Selector,
     // our sessions
     sessions: SessionContainer<NetworkSession>,
-    // holds all the actual smoltcp sockets. Used for polling events on them.
+    // holds all the actual local_smoltcp sockets. Used for polling events on them.
     iface: DriverInterface<'a>,
     // the receive gates for requests from clients
     rgate: Rc<RecvGate>,
@@ -235,10 +236,10 @@ pub fn own_ip() -> IpAddress {
 pub struct NetSettings {
     driver: String,
     name: String,
-    ip: smoltcp::wire::Ipv4Address,
-    netmask: smoltcp::wire::Ipv4Address,
-    nameserver: Option<smoltcp::wire::Ipv4Address>,
-    gateway: Option<smoltcp::wire::Ipv4Address>,
+    ip: local_smoltcp::wire::Ipv4Address,
+    netmask: local_smoltcp::wire::Ipv4Address,
+    nameserver: Option<local_smoltcp::wire::Ipv4Address>,
+    gateway: Option<local_smoltcp::wire::Ipv4Address>,
     max_clients: usize,
 }
 
@@ -247,8 +248,8 @@ impl Default for NetSettings {
         NetSettings {
             driver: String::from("default"),
             name: String::default(),
-            netmask: smoltcp::wire::Ipv4Address::new(255, 255, 255, 0),
-            ip: smoltcp::wire::Ipv4Address::default(),
+            netmask: local_smoltcp::wire::Ipv4Address::new(255, 255, 255, 0),
+            ip: local_smoltcp::wire::Ipv4Address::default(),
             nameserver: None,
             gateway: None,
             max_clients: DEF_MAX_CLIENTS,
@@ -288,7 +289,7 @@ fn parse_args() -> Result<NetSettings, String> {
                 i += 1;
             },
             "-a" => {
-                settings.netmask = smoltcp::wire::Ipv4Address::from_str(
+                settings.netmask = local_smoltcp::wire::Ipv4Address::from_str(
                     args.get(i + 1).expect("Failed to read netmask!"),
                 )
                 .expect("Failed to parse netmask!");
@@ -296,7 +297,7 @@ fn parse_args() -> Result<NetSettings, String> {
             },
             "-n" => {
                 settings.nameserver = Some(
-                    smoltcp::wire::Ipv4Address::from_str(
+                    local_smoltcp::wire::Ipv4Address::from_str(
                         args.get(i + 1).expect("Failed to read nameserver!"),
                     )
                     .expect("Failed to parse nameserver IP!"),
@@ -305,7 +306,7 @@ fn parse_args() -> Result<NetSettings, String> {
             },
             "-g" => {
                 settings.gateway = Some(
-                    smoltcp::wire::Ipv4Address::from_str(
+                    local_smoltcp::wire::Ipv4Address::from_str(
                         args.get(i + 1).expect("Failed to read gateway!"),
                     )
                     .expect("Failed to parse gateway IP!"),
@@ -323,7 +324,7 @@ fn parse_args() -> Result<NetSettings, String> {
 
     settings.name = args.get(i).expect("Failed to read name!").to_string();
     settings.ip =
-        smoltcp::wire::Ipv4Address::from_str(args.get(i + 1).expect("Failed to read ip!"))
+        local_smoltcp::wire::Ipv4Address::from_str(args.get(i + 1).expect("Failed to read ip!"))
             .expect("Failed to parse IP address!");
     Ok(settings)
 }
@@ -348,7 +349,7 @@ pub fn main() -> i32 {
     let mut neighbor_cache_entries = [None; 8];
     let neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
-    let ip_cidr = smoltcp::wire::IpCidr::Ipv4(
+    let ip_cidr = local_smoltcp::wire::IpCidr::Ipv4(
         Ipv4Cidr::from_netmask(settings.ip, settings.netmask)
             .expect("Invalid IP-address/netmask pair"),
     );
@@ -373,7 +374,7 @@ pub fn main() -> i32 {
     let iface = if settings.driver == "lo" {
         driver::DriverInterface::Lo(
             InterfaceBuilder::new(
-                smoltcp::phy::Loopback::new(smoltcp::phy::Medium::Ethernet),
+                local_smoltcp::phy::Loopback::new(local_smoltcp::phy::Medium::Ethernet),
                 Vec::with_capacity(MAX_SOCKETS),
             )
             .hardware_addr(EthernetAddress::from_bytes(&OWN_MAC).into())
@@ -444,12 +445,12 @@ pub fn main() -> i32 {
                 }
             }
 
-            // receive events from clients and push data to send into smoltcp sockets
+            // receive events from clients and push data to send into local_smoltcp sockets
             let sends_pending = handler.process_incoming();
 
-            let cur_time = smoltcp::time::Instant::from_millis(start.elapsed().as_millis() as i64);
+            let cur_time = local_smoltcp::time::Instant::from_millis(start.elapsed().as_millis() as i64);
 
-            // now poll smoltcp to send and receive packets
+            // now poll local_smoltcp to send and receive packets
             if let Err(e) = handler.iface.poll(cur_time) {
                 log!(LOG_DETAIL, "netrs: poll failed: {}", e);
             }
@@ -458,13 +459,13 @@ pub fn main() -> i32 {
             let recvs_pending = handler.process_outgoing();
 
             if !sends_pending && !recvs_pending && !handler.iface.needs_poll() {
-                // ask smoltcp how long we can sleep
+                // ask local_smoltcp how long we can sleep
                 match handler.iface.poll_delay(cur_time) {
                     // we need to call it again immediately => continue the loop
                     Some(d) if d.total_millis() == 0 => continue,
                     // we should not wait longer than `n` => sleep for `n`
                     Some(n) => break TimeDuration::from_millis(n.total_millis()),
-                    // smoltcp has nothing to do => sleep until the next TCU message arrives
+                    // local_smoltcp has nothing to do => sleep until the next TCU message arrives
                     None => break TimeDuration::MAX,
                 }
             }

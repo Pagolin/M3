@@ -10,6 +10,7 @@ dirs = [
     'root',
     'timer',
     'vterm',
+    'local_smoltcp'
 ]
 
 def build(gen, env):

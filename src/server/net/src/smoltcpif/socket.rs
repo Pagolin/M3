@@ -27,13 +27,13 @@ use m3::rc::Rc;
 use m3::time::{TimeDuration, TimeInstant};
 use m3::vec;
 
-use smoltcp::iface::SocketHandle;
-use smoltcp::socket::{
+use local_smoltcp::iface::SocketHandle;
+use local_smoltcp::socket::{
     RawSocket, RawSocketBuffer, TcpSocket, TcpSocketBuffer, TcpState, UdpSocket, UdpSocketBuffer,
 };
-use smoltcp::storage::PacketMetadata;
-use smoltcp::wire::IpVersion;
-use smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address};
+use local_smoltcp::storage::PacketMetadata;
+use local_smoltcp::wire::IpVersion;
+use local_smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address};
 
 use crate::driver::DriverInterface;
 use crate::ports::{AnyPort, EphemeralPort};
@@ -51,7 +51,7 @@ pub fn to_m3_addr(addr: IpAddress) -> IpAddr {
     }
 }
 
-/// Converts an IpEndpoint from smoltcp into an M³ (IpAddr, Port) tuple.
+/// Converts an IpEndpoint from local_smoltcp into an M³ (IpAddr, Port) tuple.
 /// Assumes that the IpEndpoint a is Ipv4 address, otherwise this will panic.
 pub fn to_m3_ep(addr: IpEndpoint) -> Endpoint {
     Endpoint::new(to_m3_addr(addr.addr), addr.port)

@@ -29,12 +29,12 @@ mod inner;
 
 pub use inner::*;
 
-use smoltcp::iface::{Context, Interface, SocketHandle};
-use smoltcp::socket::AnySocket;
-use smoltcp::time::{Duration, Instant};
+use local_smoltcp::iface::{Context, Interface, SocketHandle};
+use local_smoltcp::socket::AnySocket;
+use local_smoltcp::time::{Duration, Instant};
 
 pub enum DriverInterface<'a> {
-    Lo(Interface<'a, smoltcp::phy::Loopback>),
+    Lo(Interface<'a, local_smoltcp::phy::Loopback>),
     #[cfg(target_vendor = "gem5")]
     Eth(Interface<'a, E1000Device>),
     #[cfg(target_vendor = "hw")]
@@ -68,7 +68,7 @@ impl<'a> DriverInterface<'a> {
         }
     }
 
-    pub fn poll(&mut self, timestamp: Instant) -> smoltcp::Result<bool> {
+    pub fn poll(&mut self, timestamp: Instant) -> local_smoltcp::Result<bool> {
         match self {
             Self::Lo(l) => l.poll(timestamp),
             Self::Eth(e) => e.poll(timestamp),

@@ -1,0 +1,57 @@
+[package]
+name = "local_smoltcp"
+version = "0.8.0"
+edition = "2018"
+authors = ["whitequark <whitequark@whitequark.org>"]
+description = "Adapted version of smolt v0.8.0. Available at https://github.com/smoltcp-rs/smoltcp"
+repository = "https://github.com/smoltcp-rs/smoltcp.git"
+readme = "README.md"
+keywords = ["ip", "tcp", "udp", "ethernet", "network"]
+categories = ["embedded", "network-programming"]
+license = "0BSD"
+# Each example should have an explicit `[[example]]` section here to
+# ensure that the correct features are enabled.
+autoexamples = false
+
+[dependencies]
+managed = { version = "0.8", default-features = false, features = ["map"] }
+byteorder = { version = "1.0", default-features = false }
+log = {version = "0.4.11", optional = true }
+libc = { version = "0.2.18", optional = true }
+bitflags = { version = "1.0", default-features = false }
+defmt = { version = "0.3", optional = true }
+rand_core = { version = "0.6.3", optional = true, default-features = false }
+
+[features]
+std = ["managed/std", "rand_core/std"]
+alloc = ["managed/alloc"]
+verbose = []
+"medium-ethernet" = ["socket"]
+"medium-ip" = ["socket"]
+"medium-ieee802154" = ["socket", "proto-sixlowpan"]
+
+"phy-raw_socket" = ["std", "libc"]
+"phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
+
+"proto-ipv4" = []
+"proto-igmp" = ["proto-ipv4"]
+"proto-dhcpv4" = ["proto-ipv4"]
+"proto-ipv6" = []
+"proto-sixlowpan" = ["proto-ipv6"]
+
+"socket" = []
+"socket-raw" = ["socket"]
+"socket-udp" = ["socket"]
+"socket-tcp" = ["socket"]
+"socket-icmp" = ["socket"]
+"socket-dhcpv4" = ["socket", "medium-ethernet", "proto-dhcpv4"]
+
+"async" = []
+
+default = [
+  "alloc",
+  "log",
+  "medium-ethernet",
+  "proto-ipv4",
+  "socket-raw", "socket-udp", "socket-tcp",
+]

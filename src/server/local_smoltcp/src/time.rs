@@ -73,6 +73,17 @@ impl Instant {
         Self::from(::std::time::SystemTime::now())
     }
 
+    /// M3 replacement for Instant::now()
+    #[cfg(feature = "m3")]
+    pub fn now() -> Instant {
+        // M3s TimeInstance will give nanoseconds, while we need microseconds
+        // hence the factor 1000
+        let m3_instant = m3::time::TimeInstant::now().as_nanos();
+        Self::from_micros_const(m3_instant as i64 /1000)
+    }
+
+
+
     /// The fractional number of milliseconds that have passed
     /// since the beginning of time.
     pub const fn millis(&self) -> i64 {

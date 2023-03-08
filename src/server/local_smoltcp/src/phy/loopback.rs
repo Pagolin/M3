@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use alloc::VecDeque;
 
 use crate::phy::{self, Device, DeviceCapabilities, Medium};
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use crate::Result;
 
 /// A loopback device.
@@ -56,6 +56,10 @@ impl<'a> Device<'a> for Loopback {
             queue: &mut self.queue,
         })
     }
+
+    fn needs_poll(&self, _duration: Option<Duration>) -> bool {
+        true
+    }
 }
 
 #[doc(hidden)]
@@ -74,7 +78,7 @@ impl phy::RxToken for RxToken {
 
 #[doc(hidden)]
 pub struct TxToken<'a> {
-    queue: &'a mut VecDeque<Vec<u8>>,
+    pub(crate) queue: &'a mut VecDeque<Vec<u8>>,
 }
 
 impl<'a> phy::TxToken for TxToken<'a> {
@@ -87,5 +91,68 @@ impl<'a> phy::TxToken for TxToken<'a> {
         let result = f(&mut buffer);
         self.queue.push_back(buffer);
         result
+    }
+}
+
+#[cfg(test)]
+impl Loopback {
+    pub(crate) fn empty_tx(&self) -> bool {
+        self.queue.is_empty()
+    }
+    pub(crate) fn num_tx_packets(&self) -> usize {
+        self.queue.len()
+    }
+    /*
+    pub(crate) fn compare_tx(&self, other_txtoken:VecDeque<Vec<u8>>) -> bool {
+            self.queue == other_txtoken
+        }
+
+     */
+}
+// A constantly "exhausted" loopback device for testing.
+#[derive(Debug)]
+pub struct BrokenLoopback {
+    queue: VecDeque<Vec<u8>>,
+    medium: Medium,
+}
+
+#[allow(clippy::new_without_default)]
+impl BrokenLoopback {
+    pub fn new(medium: Medium) -> BrokenLoopback {
+        BrokenLoopback {
+            queue: VecDeque::new(),
+            medium,
+        }
+    }
+    pub(crate) fn empty_tx(&self) -> bool {
+        self.queue.is_empty()
+    }
+    pub(crate) fn num_tx_packets(&self) -> usize {
+        self.queue.len()
+    }
+}
+
+impl<'a> Device<'a> for BrokenLoopback {
+    type RxToken = RxToken;
+    type TxToken = TxToken<'a>;
+
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        None
+    }
+
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        None
+    }
+
+    fn capabilities(&self) -> DeviceCapabilities {
+        DeviceCapabilities {
+            max_transmission_unit: 65535,
+            medium: self.medium,
+            ..DeviceCapabilities::default()
+        }
+    }
+    ///Dummy function to resemble m3 device interface
+    fn needs_poll(&self, _duration: Option<Duration>) -> bool {
+        true
     }
 }

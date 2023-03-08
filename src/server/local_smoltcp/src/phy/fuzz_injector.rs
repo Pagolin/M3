@@ -1,5 +1,5 @@
 use crate::phy::{self, Device, DeviceCapabilities};
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use crate::Result;
 
 // This could be fixed once associated consts are stable.
@@ -88,6 +88,10 @@ where
             fuzzer: fuzz_tx,
             token: token,
         })
+    }
+    ///Dummy function to resemble m3 device interface
+    fn needs_poll(&self, duration: Option<Duration>) -> bool {
+        self.inner.needs_poll(duration)
     }
 }
 

@@ -4,8 +4,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::rc::Rc;
 use std::vec::Vec;
 
-use crate::phy::{self, sys, Device, DeviceCapabilities, Medium};
-use crate::time::Instant;
+use crate::phy::{self, sys, wait, Device, DeviceCapabilities, Medium};
+use crate::time::{Duration, Instant};
 use crate::Result;
 
 /// A socket that captures or transmits the complete frame.
@@ -29,6 +29,7 @@ impl RawSocket {
     /// set on the executable.
     pub fn new(name: &str, medium: Medium) -> io::Result<RawSocket> {
         let mut lower = sys::RawSocketDesc::new(name, medium)?;
+        // configures system level socket e.g. bind Adress Family etc.
         lower.bind_interface()?;
 
         let mut mtu = lower.interface_mtu()?;
@@ -81,6 +82,11 @@ impl<'a> Device<'a> for RawSocket {
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => None,
             Err(err) => panic!("{}", err),
         }
+    }
+    ///Dummy function to resemble m3 device interface
+    fn needs_poll(&self, duration: Option<Duration>) -> bool {
+        wait(self.as_raw_fd(), duration);
+        true
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {

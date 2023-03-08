@@ -241,6 +241,9 @@ pub use self::tcp::{
     TcpOption, HEADER_LEN as TCP_HEADER_LEN,
 };
 
+
+pub use self::tcp::ReprOwned as TcpReprP;
+
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{
     DhcpOption, DhcpOptionWriter, MessageType as DhcpMessageType, Packet as DhcpPacket,

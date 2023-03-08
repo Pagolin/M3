@@ -4,8 +4,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::rc::Rc;
 use std::vec::Vec;
 
-use crate::phy::{self, sys, Device, DeviceCapabilities, Medium};
-use crate::time::Instant;
+use crate::phy::{self, sys, wait, Device, DeviceCapabilities, Medium};
+use crate::time::{Duration, Instant};
 use crate::Result;
 
 /// A virtual TUN (IP) or TAP (Ethernet) interface.
@@ -73,6 +73,12 @@ impl<'a> Device<'a> for TunTapInterface {
         Some(TxToken {
             lower: self.lower.clone(),
         })
+    }
+
+    ///Dummy function to resemble m3 device interface
+    fn needs_poll(&self, duration: Option<Duration>) -> bool {
+        wait(self.as_raw_fd(), duration);
+        true
     }
 }
 

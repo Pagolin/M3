@@ -50,10 +50,16 @@ verbose = []
 
 "async" = []
 
+"ohua" = ["socket-tcp"]
+
+
+
+
 default = [
   "alloc",
   "log",
   "medium-ethernet",
   "proto-ipv4",
   "socket-raw", "socket-udp", "socket-tcp",
+  "ohua"
 ]

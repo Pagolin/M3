@@ -241,8 +241,8 @@ impl E1000 {
 
         // check which protocol is used: ip, tcp, or udp.
         let (is_ip, mut txo_proto) = {
-            let ethf = local_smoltcp::wire::EthernetFrame::new_unchecked(packet);
-            if ethf.ethertype() == local_smoltcp::wire::EthernetProtocol::Ipv4 {
+            let ethf = smoltcp::wire::EthernetFrame::new_unchecked(packet);
+            if ethf.ethertype() == smoltcp::wire::EthernetProtocol::Ipv4 {
                 (true, TxoProto::IP)
             }
             else {

@@ -25,7 +25,7 @@ use m3::kif::{PageFlags, Perm};
 use m3::tiles::Activity;
 use m3::vec;
 
-use local_smoltcp::time::Instant;
+use smoltcp::time::Instant;
 
 extern "C" {
     pub fn axieth_init(virt: goff, phys: goff, size: usize) -> isize;
@@ -80,17 +80,17 @@ impl Drop for AXIEthDevice {
     }
 }
 
-impl<'a> local_smoltcp::phy::Device<'a> for AXIEthDevice {
+impl<'a> smoltcp::phy::Device<'a> for AXIEthDevice {
     type RxToken = RxToken;
     type TxToken = TxToken;
 
-    fn capabilities(&self) -> local_smoltcp::phy::DeviceCapabilities {
-        let mut caps = local_smoltcp::phy::DeviceCapabilities::default();
+    fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
+        let mut caps = smoltcp::phy::DeviceCapabilities::default();
         caps.max_transmission_unit = MTU;
         // TODO use checksum offloading
-        caps.checksum.ipv4 = local_smoltcp::phy::Checksum::Both;
-        caps.checksum.udp = local_smoltcp::phy::Checksum::Both;
-        caps.checksum.tcp = local_smoltcp::phy::Checksum::Both;
+        caps.checksum.ipv4 = smoltcp::phy::Checksum::Both;
+        caps.checksum.udp = smoltcp::phy::Checksum::Both;
+        caps.checksum.tcp = smoltcp::phy::Checksum::Both;
         caps
     }
 
@@ -126,10 +126,10 @@ pub struct RxToken {
     buffer: Vec<u8>,
 }
 
-impl local_smoltcp::phy::RxToken for RxToken {
-    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> local_smoltcp::Result<R>
+impl smoltcp::phy::RxToken for RxToken {
+    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> smoltcp::Result<R>
     where
-        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
         f(&mut self.buffer[..])
     }
@@ -139,10 +139,10 @@ pub struct TxToken {
     tx_buf: usize,
 }
 
-impl local_smoltcp::phy::TxToken for TxToken {
-    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> local_smoltcp::Result<R>
+impl smoltcp::phy::TxToken for TxToken {
+    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> smoltcp::Result<R>
     where
-        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
         assert!(len <= 4096);
         // safety: we know that tx_buf is properly aligned and one page large
@@ -152,7 +152,7 @@ impl local_smoltcp::phy::TxToken for TxToken {
 
         match unsafe { axieth_send(buffer.as_ptr(), buffer.len()) } {
             0 => Ok(res),
-            _ => Err(local_smoltcp::Error::Exhausted),
+            _ => Err(smoltcp::Error::Exhausted),
         }
     }
 }

@@ -14,7 +14,7 @@
  * General Public License version 2 for more details.
  */
 
-// hosts a simple fifo driver that is based on Unix sockets. More or less copies local_smoltcp's
+// hosts a simple fifo driver that is based on Unix sockets. More or less copies smoltcp's
 // RawSocket. But implemented in no_std environment.
 
 use core::default::Default;
@@ -27,8 +27,8 @@ use m3::rc::Rc;
 use m3::tcu::TCU;
 use m3::{format, log, vec};
 
-use local_smoltcp::phy::{Device, DeviceCapabilities};
-use local_smoltcp::time::Instant;
+use smoltcp::phy::{Device, DeviceCapabilities};
+use smoltcp::time::Instant;
 
 fn get_socket(name: &str, suff: &str) -> sockaddr_un {
     let mut addr = sockaddr_un {
@@ -44,7 +44,7 @@ fn get_socket(name: &str, suff: &str) -> sockaddr_un {
     addr
 }
 
-// Inner raw socket description, more or less copied from local_smoltcps's sys::RawSocket, but in no_std.
+// Inner raw socket description, more or less copied from smoltcps's sys::RawSocket, but in no_std.
 pub struct RawSocketDesc {
     in_fd: c_int,
     out_fd: c_int,
@@ -233,10 +233,10 @@ pub struct RxToken {
     buffer: Vec<u8>,
 }
 
-impl local_smoltcp::phy::RxToken for RxToken {
-    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> local_smoltcp::Result<R>
+impl smoltcp::phy::RxToken for RxToken {
+    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> smoltcp::Result<R>
     where
-        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
         f(&mut self.buffer[..])
     }
@@ -246,16 +246,16 @@ pub struct TxToken {
     lower: Rc<RawSocketDesc>,
 }
 
-impl local_smoltcp::phy::TxToken for TxToken {
-    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> local_smoltcp::Result<R>
+impl smoltcp::phy::TxToken for TxToken {
+    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> smoltcp::Result<R>
     where
-        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
         let mut buffer = vec![0; len];
         let res = f(&mut buffer)?;
         match self.lower.send(&buffer[..]) {
             Some(_) => Ok(res),
-            None => Err(local_smoltcp::Error::Exhausted),
+            None => Err(smoltcp::Error::Exhausted),
         }
     }
 }

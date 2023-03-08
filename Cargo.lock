@@ -3,6 +3,15 @@
 version = 3
 
 [[package]]
+name = "atomic-polyfill"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3ff7eb3f316534d83a8a2c3d1674ace8a5a71198eba31e2e2b597833f699b28"
+dependencies = [
+ "critical-section",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -37,6 +46,12 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "critical-section"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6548a0ad5d2549e111e1f6a11a6c2e2d00ce6a3dafe22948d67c2b443f775e52"
 
 [[package]]
 name = "defmt"
@@ -91,14 +106,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "getrandom"
-version = "0.2.8"
+name = "hash32"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c05aeb6a22b8f62540c194aac980f2115af067bfe15a0734d7277a768d396b31"
+checksum = "b0c35f58762feb77d74ebe43bdbc3210f09be9fe6742234d573bacc26ed92b67"
 dependencies = [
- "cfg-if",
- "libc",
- "wasi",
+ "byteorder",
 ]
 
 [[package]]
@@ -138,6 +151,19 @@ version = "0.1.0"
 dependencies = [
  "base",
  "bitflags",
+]
+
+[[package]]
+name = "heapless"
+version = "0.7.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db04bc24a18b9ea980628ecf00e6c0264f3c1426dac36c00cb49b6fbad8b0743"
+dependencies = [
+ "atomic-polyfill",
+ "hash32",
+ "rustc_version",
+ "spin",
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -197,11 +223,22 @@ version = "0.8.0"
 dependencies = [
  "bitflags",
  "byteorder",
+ "cfg-if",
  "defmt",
+ "heapless",
  "libc",
  "log",
  "managed",
- "rand_core",
+]
+
+[[package]]
+name = "lock_api"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "435011366fe56583b16cf956f9df0095b405b82d76425bc8981c0e22e60ec4df"
+dependencies = [
+ "autocfg",
+ "scopeguard",
 ]
 
 [[package]]
@@ -265,6 +302,7 @@ dependencies = [
  "m3",
  "memoffset",
  "pci",
+ "smoltcp 0.8.0 (git+https://github.com/smoltcp-rs/smoltcp.git?tag=v0.8.0)",
  "thread",
 ]
 
@@ -376,15 +414,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_core"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
-dependencies = [
- "getrandom",
-]
-
-[[package]]
 name = "resmng"
 version = "0.1.0"
 dependencies = [
@@ -407,6 +436,15 @@ name = "rustbenchs"
 version = "0.1.0"
 dependencies = [
  "m3",
+]
+
+[[package]]
+name = "rustc_version"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
+dependencies = [
+ "semver",
 ]
 
 [[package]]
@@ -438,6 +476,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "scopeguard"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+
+[[package]]
+name = "semver"
+version = "1.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58bc9567378fc7690d6b2addae4e60ac2eeea07becb2c64b9f218b53865cba2a"
+
+[[package]]
 name = "serde"
 version = "1.0.137"
 source = "git+https://github.com/Barkhausen-Institut/m3-serde?branch=m3#64c6cfd3524cbdadf3489179aeae761d4198d95d"
@@ -456,11 +506,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "smoltcp"
+version = "0.8.0"
+source = "git+https://github.com/smoltcp-rs/smoltcp.git?tag=v0.8.0#e88e324d44669ee26dfb81ef78040d2c7c1ec9f5"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "log",
+ "managed",
+]
+
+[[package]]
+name = "smoltcp"
+version = "0.8.0"
+source = "git+https://github.com/sertel/smoltcp.git?branch=master#c6fad2f28b96a6721e0f053909bd71d56e119b29"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "log",
+ "managed",
+]
+
+[[package]]
+name = "smoltcploop"
+version = "0.1.0"
+dependencies = [
+ "m3",
+ "smoltcp 0.8.0 (git+https://github.com/sertel/smoltcp.git?branch=master)",
+]
+
+[[package]]
 name = "spammer"
 version = "0.1.0"
 dependencies = [
  "m3",
 ]
+
+[[package]]
+name = "spin"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dccf47db1b41fa1573ed27ccf5e08e3ca771cb994f776668c5ebda893b248fc"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
+name = "stable_deref_trait"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "static_assertions"
@@ -560,12 +655,6 @@ version = "0.1.0"
 dependencies = [
  "m3",
 ]
-
-[[package]]
-name = "wasi"
-version = "0.11.0+wasi-snapshot-preview1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
 
 [[package]]
 name = "ycsbclient"

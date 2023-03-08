@@ -33,6 +33,12 @@ impl RawSocket {
 
         let mut mtu = lower.interface_mtu()?;
 
+        // FIXME(thvdveld): this is a workaround for https://github.com/smoltcp-rs/smoltcp/issues/622
+        #[cfg(feature = "medium-ieee802154")]
+        if medium == Medium::Ieee802154 {
+            mtu += 2;
+        }
+
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
             // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
@@ -43,7 +49,7 @@ impl RawSocket {
         Ok(RawSocket {
             medium,
             lower: Rc::new(RefCell::new(lower)),
-            mtu: mtu,
+            mtu,
         })
     }
 }
@@ -111,7 +117,10 @@ impl phy::TxToken for TxToken {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; len];
         let result = f(&mut buffer);
-        lower.send(&buffer[..]).unwrap();
-        result
+        match lower.send(&buffer[..]) {
+            Ok(_) => result,
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => Err(crate::Error::Exhausted),
+            Err(err) => panic!("{}", err),
+        }
     }
 }

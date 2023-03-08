@@ -3,8 +3,11 @@
 // and RFCs 8200 and 4861 for any IPv6 and NDISC work.
 
 use core::cmp;
-use std::rc::Rc;
-use core::cell::RefCell;
+
+use m3::rc::Rc;
+use m3::vec::Vec;
+use alloc::vec;
+use m3::cell::RefCell;
 use managed::{ManagedMap, ManagedSlice};
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
@@ -28,7 +31,8 @@ use crate::wire::ip::{Address};
 
 fn process_octets(octets:&mut [u8]) -> (usize, Vec<u8>) {
     let recvd_len = octets.len();
-    let data = octets.to_owned();
+    let mut data = vec![];
+    data.extend_from_slice(octets);
     // Debug print is done in the app
     /*
     if !data.is_empty(){
@@ -1174,8 +1178,10 @@ impl<'a> Interface<'a> {
                         let input = socket.recv(process_octets).unwrap();
                         if socket.can_send() && !input.is_empty() {
                             net_debug!(
-                                "tcp:6969 send data: {:?}",
-                                std::str::from_utf8(input.as_ref()).unwrap_or("(invalid utf8)")
+                                "tcp:6969 send data: Which I would like to show you but
+                                I need to find utf8 conversion without std"
+                                /*{:?}",
+                                std::str::from_utf8(input.as_ref()).unwrap_or("(invalid utf8)")*/
                             );
                             return Either::Right((self.processed_any, vec![(handle, input)]));
                         }

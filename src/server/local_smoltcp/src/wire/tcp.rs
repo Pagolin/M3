@@ -1,3 +1,4 @@
+use m3::vec::Vec;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::{cmp, fmt, i32, ops};
 

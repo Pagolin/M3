@@ -89,6 +89,9 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 "##
 )]
 
+use m3::vec::Vec;
+use alloc::vec;
+
 use crate::iface::{InterfaceCall, InterfaceState};
 use crate::time::{Duration, Instant};
 use crate::{Either, Error, Result};
@@ -118,7 +121,10 @@ mod tuntap_interface;
     any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
     unix
 ))]
+
+//ToDO: This won't work any more
 pub use self::sys::wait;
+
 
 pub use self::fault_injector::FaultInjector;
 pub use self::fuzz_injector::{FuzzInjector, Fuzzer};

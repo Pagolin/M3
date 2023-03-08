@@ -221,6 +221,7 @@ checksum = "ad5c14e80759d0939d013e6ca49930e59fc53dd8e5009132f76240c179380c09"
 name = "local_smoltcp"
 version = "0.8.0"
 dependencies = [
+ "base",
  "bitflags",
  "byteorder",
  "cfg-if",
@@ -228,6 +229,7 @@ dependencies = [
  "heapless",
  "libc",
  "log",
+ "m3",
  "managed",
 ]
 

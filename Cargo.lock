@@ -304,7 +304,7 @@ dependencies = [
  "m3",
  "memoffset",
  "pci",
- "smoltcp 0.8.0 (git+https://github.com/smoltcp-rs/smoltcp.git?tag=v0.8.0)",
+ "smoltcp",
  "thread",
 ]
 
@@ -519,22 +519,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "smoltcp"
-version = "0.8.0"
-source = "git+https://github.com/sertel/smoltcp.git?branch=master#c6fad2f28b96a6721e0f053909bd71d56e119b29"
-dependencies = [
- "bitflags",
- "byteorder",
- "log",
- "managed",
-]
-
-[[package]]
 name = "smoltcploop"
 version = "0.1.0"
 dependencies = [
+ "local_smoltcp",
  "m3",
- "smoltcp 0.8.0 (git+https://github.com/sertel/smoltcp.git?branch=master)",
 ]
 
 [[package]]

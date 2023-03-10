@@ -9,8 +9,7 @@ dirs = [
     'pipes',
     'root',
     'timer',
-    'vterm',
-    'local_smoltcp'
+    'vterm'
 ]
 
 def build(gen, env):

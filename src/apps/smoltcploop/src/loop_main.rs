@@ -16,34 +16,37 @@
 
 #![no_std]
 
-// use m3::env;
-// use m3::println;
-
-//mod loop_lib;
-
-//use crate::loop_lib::lib::*;
-// use m3::col::{Vec};
-
+mod loop_lib;
+use loop_lib::store::{Store};
 
 use core::str;
 // The rust API for m3 basically defines one logging macro we can use here 
 // replacing debug!, info! and error!
 // However they are trivially defined in M3/src/libs/rust/base/src/io/mod.rs so 
 // I could probably augment them with the appropriate other definitions 
-use m3::{log};
+use m3::{log, vec};
+use m3::col::{BTreeMap, Vec};
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
-use smoltcp::phy::{Loopback, Medium};
-use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
-use smoltcp::time::{Duration, Instant};
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
+
+use local_smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
+use local_smoltcp::phy::{Loopback, Medium};
+use local_smoltcp::socket::{tcp};
+use local_smoltcp::time::{Duration, Instant};
+use local_smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
 // m3's log takes a log-level-bool parameter
 const DEBUG: bool = true;
 
+fn process_octets(octets:&mut [u8]) -> (usize, Vec<u8>) {
+    let recvd_len = octets.len();
+    let mut data = vec![];
+    data.extend_from_slice(octets);
+    (recvd_len, data)
+}
+
 mod mock {
     use core::cell::Cell;
-    use smoltcp::time::{Duration, Instant};
+    use local_smoltcp::time::{Duration, Instant};
 
     #[derive(Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -68,7 +71,9 @@ mod mock {
 #[no_mangle]
 fn main() {
     let clock = mock::Clock::new();
-    let device = Loopback::new(Medium::Ethernet);
+    let mut store = Store::default();
+
+    let mut device = Loopback::new(Medium::Ethernet);
 
     // we leave out the device setup with logging and timing features cause there's to much std
     // involved which we'd need to replace
@@ -77,12 +82,11 @@ fn main() {
     let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
-    let mut sockets: [_; 2] = Default::default();
-    let mut iface = InterfaceBuilder::new(device, &mut sockets[..])
+    let mut iface = InterfaceBuilder::new(vec![])
         .hardware_addr(EthernetAddress::default().into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
-        .finalize();
+        .finalize(&mut device);
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but
@@ -91,76 +95,81 @@ fn main() {
         // when stack overflows.
         static mut TCP_SERVER_RX_DATA: [u8; 1024] = [0; 1024];
         static mut TCP_SERVER_TX_DATA: [u8; 1024] = [0; 1024];
-        let tcp_rx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_SERVER_RX_DATA[..] });
-        let tcp_tx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_SERVER_TX_DATA[..] });
-        TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer)
+        let tcp_rx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_SERVER_RX_DATA[..] });
+        let tcp_tx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_SERVER_TX_DATA[..] });
+        tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer)
     };
 
     let client_socket = {
         static mut TCP_CLIENT_RX_DATA: [u8; 1024] = [0; 1024];
         static mut TCP_CLIENT_TX_DATA: [u8; 1024] = [0; 1024];
-        let tcp_rx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_CLIENT_RX_DATA[..] });
-        let tcp_tx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_CLIENT_TX_DATA[..] });
-        TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer)
+        let tcp_rx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_CLIENT_RX_DATA[..] });
+        let tcp_tx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_CLIENT_TX_DATA[..] });
+        tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer)
     };
 
-    let server_handle = iface.add_socket(server_socket);
-    let client_handle = iface.add_socket(client_socket);
+    let mut sockets: [_; 2] = Default::default();
+    let mut sockets = SocketSet::new(&mut sockets[..]);
+    let server_handle = sockets.add(server_socket);
+    let client_handle = sockets.add(client_socket);
 
     let mut did_listen = false;
     let mut did_connect = false;
     let mut done = false;
+
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
-        match iface.poll(clock.elapsed()) {
+        match iface.poll(clock.elapsed(), &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
-                log!(DEBUG,"poll error: {}", e);
+                log!(DEBUG,"poll error");
             }
         }
 
-        let mut socket = iface.get_socket::<TcpSocket<'_>>(server_handle);
+        let mut socket = sockets.get_mut::<tcp::Socket>(server_handle);
         if !socket.is_active() && !socket.is_listening() {
             if !did_listen {
-                log!(DEBUG,"listening");
+                log!(DEBUG, "server listening");
                 socket.listen(1234).unwrap();
                 did_listen = true;
             }
         }
 
         if socket.can_recv() {
+            let input = socket.recv(process_octets).unwrap();
             log!(DEBUG,
-                "got {:?}",
-                socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
+                "got server input {:?}",
+                input
             );
+            if socket.can_send() {
+                let outbytes = store.handle_message(&input);
+                socket.send_slice(&outbytes[..]).unwrap();
+            }
             socket.close();
             done = true;
         }
 
-        let (mut socket, cx) = iface.get_socket_and_context::<TcpSocket<'_>>(client_handle);
+        let mut socket = sockets.get_mut::<tcp::Socket>(client_handle);
+        let cx = iface.context();
         if !socket.is_open() {
             if !did_connect {
-                log!(DEBUG,"connecting");
+                log!(DEBUG, "connecting");
                 socket
-                    .connect(
-                        cx,
-                        (IpAddress::v4(127, 0, 0, 1), 1234),
-                        (IpAddress::Unspecified, 65000),
-                    )
+                    .connect(cx, (IpAddress::v4(127, 0, 0, 1), 1234), 65000)
                     .unwrap();
                 did_connect = true;
             }
         }
 
         if socket.can_send() {
-            log!(DEBUG,"sending");
-            socket.send_slice(b"0123456789abcdef").unwrap();
+            log!(DEBUG, "sending");
+            socket.send_slice(b"Client requests Nonsense").unwrap();
             socket.close();
         }
 
-        match iface.poll_delay(clock.elapsed()) {
-            Some(Duration::ZERO) => log!(DEBUG,"resuming"),
+        match iface.poll_delay(clock.elapsed(), &sockets) {
+            Some(Duration::ZERO) => log!(DEBUG, "resuming"),
             Some(delay) => {
-                log!(DEBUG,"sleeping for {} ms", delay);
+                log!(DEBUG, "sleeping for {} ms", delay);
                 clock.advance(delay)
             }
             None => clock.advance(Duration::from_millis(1)),
@@ -168,8 +177,8 @@ fn main() {
     }
 
     if done {
-        log!(DEBUG,"done")
+        log!(DEBUG, "done")
     } else {
-        log!(DEBUG,"this is taking too long, bailing out")
+        log!(DEBUG, "this is taking too long, bailing out")
     }
 }

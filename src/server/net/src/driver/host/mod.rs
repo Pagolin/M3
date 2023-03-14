@@ -28,7 +28,9 @@ use m3::tcu::TCU;
 use m3::{format, log, vec};
 
 use smoltcp::phy::{Device, DeviceCapabilities};
+use local_smoltcp::phy::{Device as LocalDevice, DeviceCapabilities as LocalDevCaps};
 use smoltcp::time::Instant;
+use local_smoltcp::time::{Instant as LocalInstant, Duration};
 
 fn get_socket(name: &str, suff: &str) -> sockaddr_un {
     let mut addr = sockaddr_un {
@@ -229,6 +231,41 @@ impl<'a> Device<'a> for DevFifo {
     }
 }
 
+// The trait implementation is essentially the same as in the original library
+// However to ue this device with both, the original and the adapted library we (for now)
+// need both traits.
+impl<'a> LocalDevice<'a> for DevFifo {
+    type RxToken = RxToken;
+    type TxToken = TxToken;
+
+    fn capabilities(&self) -> LocalDevCaps {
+        let mut caps = LocalDevCaps::default();
+        caps.max_transmission_unit = self.mtu;
+        caps
+    }
+
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        let mut buffer = vec![0; self.mtu];
+        self.lower.recv(&mut buffer[..]).map(|size| {
+            buffer.resize(size, 0);
+            let rx = RxToken { buffer };
+            let tx = TxToken {
+                lower: self.lower.clone(),
+            };
+            (rx, tx)
+        })
+    }
+
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        Some(TxToken {
+            lower: self.lower.clone(),
+        })
+    }
+    fn needs_poll(&self, _max_duration: Option<Duration>) -> bool{
+        self.needs_poll()
+    }
+}
+
 pub struct RxToken {
     buffer: Vec<u8>,
 }
@@ -237,6 +274,15 @@ impl smoltcp::phy::RxToken for RxToken {
     fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> smoltcp::Result<R>
     where
         F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+    {
+        f(&mut self.buffer[..])
+    }
+}
+
+impl local_smoltcp::phy::RxToken for RxToken {
+    fn consume<R, F>(mut self, _timestamp: LocalInstant, f: F) -> local_smoltcp::Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
     {
         f(&mut self.buffer[..])
     }
@@ -256,6 +302,20 @@ impl smoltcp::phy::TxToken for TxToken {
         match self.lower.send(&buffer[..]) {
             Some(_) => Ok(res),
             None => Err(smoltcp::Error::Exhausted),
+        }
+    }
+}
+
+impl local_smoltcp::phy::TxToken for TxToken {
+    fn consume<R, F>(self, _timestamp: LocalInstant, len: usize, f: F) -> local_smoltcp::Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
+    {
+        let mut buffer = vec![0; len];
+        let res = f(&mut buffer)?;
+        match self.lower.send(&buffer[..]) {
+            Some(_) => Ok(res),
+            None => Err(local_smoltcp::Error::Exhausted),
         }
     }
 }

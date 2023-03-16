@@ -519,6 +519,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "smoltcp_server"
+version = "0.1.0"
+dependencies = [
+ "base",
+ "bitflags",
+ "local_smoltcp",
+ "log",
+ "m3",
+ "memoffset",
+ "pci",
+ "thread",
+]
+
+[[package]]
 name = "smoltcploop"
 version = "0.1.0"
 dependencies = [

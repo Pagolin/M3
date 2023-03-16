@@ -5,6 +5,7 @@ dirs = [
     'disk',
     'm3fs',
     'net',
+    'smoltcp_server',
     'pager',
     'pipes',
     'root',

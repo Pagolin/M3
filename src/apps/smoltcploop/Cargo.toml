@@ -4,11 +4,9 @@ version = "0.1.0"
 edition = "2018"
 
 [lib]
-path = "src/loop_main.rs"
+path = "../../server/smoltcp_server/src/loop_main.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
 m3 = { path = "../../libs/rust/m3" }
-# smoltcp = { git = "https://github.com/sertel/smoltcp.git", branch = "master", default-features = false, features = [ "log", "alloc", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw", "medium-ethernet" ] }
 local_smoltcp = { path = "../../libs/local_smoltcp", default-features = true }
-# serde = { git = "https://github.com/Barkhausen-Institut/m3-serde", branch = "m3", default-features = false, features = ["derive", "alloc"] }

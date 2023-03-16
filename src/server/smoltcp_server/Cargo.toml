@@ -1,0 +1,20 @@
+[package]
+name = "smoltcp_server"
+version = "0.1.0"
+authors = ["Tendsin Mende <tendsin@protonmail.com>"]
+edition = "2018"
+
+[lib]
+path = "src/loop_main.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+m3 = { path = "../../libs/rust/m3" }
+base = { path = "../../libs/rust/base"}
+thread = { path = "../../libs/rust/thread" }
+pci = { path = "../../libs/rust/pci" }
+bitflags = "1.2.1"
+log = "0.4.11"
+memoffset = { version = "0.6.5", features = [ "unstable_const" ] }
+
+local_smoltcp = { path= "../../libs/local_smoltcp", default-features = false, features = [ "log", "alloc", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw", "medium-ethernet" ] }

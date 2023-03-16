@@ -20,7 +20,7 @@ use m3::errors::Error;
 use m3::rc::Rc;
 use m3::vec::Vec;
 
-use smoltcp::time::Instant;
+
 use local_smoltcp::time::{Instant as LocalInstant, Duration};
 use local_smoltcp::device;
 mod defines;
@@ -44,43 +44,6 @@ impl E1000Device {
     }
 }
 
-impl<'a> smoltcp::phy::Device<'a> for E1000Device {
-    type RxToken = RxToken;
-    type TxToken = TxToken;
-
-    fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
-        let mut caps = smoltcp::phy::DeviceCapabilities::default();
-        caps.max_transmission_unit = e1000::E1000::mtu();
-        caps.checksum.ipv4 = smoltcp::phy::Checksum::None;
-        caps.checksum.udp = smoltcp::phy::Checksum::None;
-        caps.checksum.tcp = smoltcp::phy::Checksum::None;
-        caps
-    }
-
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        match self.dev.borrow_mut().receive() {
-            Ok(buffer) => {
-                let rx = RxToken { buffer };
-                let tx = TxToken {
-                    device: self.dev.clone(),
-                };
-                Some((rx, tx))
-            },
-            Err(_) => None,
-        }
-    }
-
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        Some(TxToken {
-            device: self.dev.clone(),
-        })
-    }
-
-}
-
-// The trait implementation is essentially the same as in the original library
-// However to ue this device with both, the original and the adapted library we (for now)
-// need both traits.
 impl<'a> local_smoltcp::phy::Device<'a> for E1000Device {
     type RxToken = RxToken;
     type TxToken = TxToken;
@@ -122,14 +85,6 @@ pub struct RxToken {
     buffer: Vec<u8>,
 }
 
-impl smoltcp::phy::RxToken for RxToken {
-    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
-    {
-        f(&mut self.buffer[..])
-    }
-}
 
 impl local_smoltcp::phy::RxToken for RxToken {
     fn consume<R, F>(mut self, _timestamp: LocalInstant, f: F) -> local_smoltcp::Result<R>
@@ -148,20 +103,6 @@ pub struct TxToken {
 static SEND_BUF: StaticRefCell<[u8; e1000::E1000::mtu()]> =
     StaticRefCell::new([0u8; e1000::E1000::mtu()]);
 
-impl smoltcp::phy::TxToken for TxToken {
-    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
-    {
-        // fill buffer with "to be send" data
-        assert!(len <= SEND_BUF.borrow().len());
-        let res = f(&mut SEND_BUF.borrow_mut()[0..len])?;
-        match self.device.borrow_mut().send(&SEND_BUF.borrow()[0..len]) {
-            true => Ok(res),
-            false => Err(smoltcp::Error::Exhausted),
-        }
-    }
-}
 
 impl local_smoltcp::phy::TxToken for TxToken {
     fn consume<R, F>(self, _timestamp: LocalInstant, len: usize, f: F) -> local_smoltcp::Result<R>

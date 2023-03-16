@@ -49,6 +49,8 @@ fn process_octets(octets: &mut [u8]) -> (usize, Vec<u8>) {
     (recvd_len, data)
 }
 
+
+#[no_mangle]
 pub fn main() -> i32{
     log!(DEBUG,
 r#"
@@ -101,8 +103,11 @@ r#"
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);
+    // As long as I haven't figured out a sensible way of ending the loop
+    // I'll just count iterations
+    let mut interim_break = 0;
 
-    loop {
+    while interim_break < 100 {
         let timestamp = Instant::now();
         match iface.poll(timestamp, &mut device, & mut sockets) {
             Ok(_) => {}
@@ -134,6 +139,7 @@ r#"
             socket.close();
         }
         //phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        interim_break += 1;
     }
     0
 }

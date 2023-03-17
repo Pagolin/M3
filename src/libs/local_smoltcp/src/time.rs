@@ -11,6 +11,7 @@ absolute and relative time.
 */
 
 use core::{fmt, ops};
+use core::convert::TryInto;
 
 /// A representation of an absolute time value.
 ///
@@ -82,6 +83,11 @@ impl Instant {
         Self::from_micros_const(m3_instant as i64 /1000)
     }
 
+    /// Return an m3 compatible Duration
+    #[cfg(feature = "m3")]
+    pub fn as_m3_duration(&self) -> m3::time::TimeDuration {
+        m3::time::TimeDuration::from_millis(self.millis().try_into().unwrap())
+    }
 
 
     /// The fractional number of milliseconds that have passed
@@ -233,6 +239,13 @@ impl Duration {
     pub const fn total_micros(&self) -> u64 {
         self.micros
     }
+
+        /// Return an m3 compatible Duration
+    #[cfg(feature = "m3")]
+    pub fn as_m3_duration(&self) -> m3::time::TimeDuration {
+        m3::time::TimeDuration::from_millis(self.millis().try_into().unwrap())
+    }
+
 }
 
 impl fmt::Display for Duration {

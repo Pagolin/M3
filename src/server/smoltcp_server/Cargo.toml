@@ -17,4 +17,4 @@ bitflags = "1.2.1"
 log = "0.4.11"
 memoffset = { version = "0.6.5", features = [ "unstable_const" ] }
 
-local_smoltcp = { path= "../../libs/local_smoltcp", default-features = false, features = [ "log", "alloc", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw", "medium-ethernet" ] }
+local_smoltcp = { path= "../../libs/local_smoltcp", default-features = true}

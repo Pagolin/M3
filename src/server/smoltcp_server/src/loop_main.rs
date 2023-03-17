@@ -31,6 +31,7 @@ use core::str;
 // I could probably augment them with the appropriate other definitions 
 use m3::{log, vec};
 use m3::col::{BTreeMap, Vec};
+use m3::tiles::Activity;
 
 
 use local_smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
@@ -67,6 +68,7 @@ r#"
      \/__/         \/__/         \/__/         \/__/                  \|__|
 "#
     );
+    log!(DEBUG, "Running smoltcp server");
     let mut store = Store::default();
 
 
@@ -139,6 +141,34 @@ r#"
             socket.close();
         }
         //phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        /* Original waiting logic of phy_wait ... :
+            1. If the device (file pointer) is ready/available
+                -> poll
+            2. If poll_delay return Some(advisory wait)
+                -> wait until the device is ready BUT at most for the advisory waiting time
+            3. If poll_delay returns None
+                ->   wait until the device becomes available again
+           Logic in the server/net loop:
+            1. If device.needs_poll() -> continue polling
+            2. If advised waiting time is Some(0) -> continue polling
+            3. If advised waiting time is Some(t) -> wait for t
+            4. If advised waiting time is None -> wait TimeDuration::MAX
+           -> There seems to be additional event logic preventing the m3 loop from
+               literally waiting for years so for the case where device does not need
+               polling and there is no advised waiting time we need to pick a
+               reasonable time to wait -> we take the one from the smoltcp loopback loop
+        */
+        if device.needs_poll() {
+            continue
+        } else {
+            let advised_waiting_timeout = iface.poll_delay(timestamp, &sockets);
+            match advised_waiting_timeout {
+                None => Activity::own().sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
+                Some(t) => Activity::own().sleep_for(t.as_m3_duration()).ok(),
+            }
+        };
+
+
         interim_break += 1;
     }
     0

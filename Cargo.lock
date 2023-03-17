@@ -519,6 +519,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "smoltcp_client"
+version = "0.1.0"
+dependencies = [
+ "local_smoltcp",
+ "m3",
+]
+
+[[package]]
 name = "smoltcp_server"
 version = "0.1.0"
 dependencies = [

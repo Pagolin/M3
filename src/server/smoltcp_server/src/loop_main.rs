@@ -21,7 +21,7 @@
 mod loop_lib;
 mod driver;
 
-use driver::*;
+use crate::driver::*;
 use loop_lib::store::{Store};
 
 use core::str;

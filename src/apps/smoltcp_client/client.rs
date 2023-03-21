@@ -38,13 +38,13 @@ const VERBOSE: bool = true;
 
 fn usage() {
     let name = env::args().next().unwrap();
-    println!("Usage: {} tcp <ip> <port> <workload> <repeats>", name);
+    println!("Usage: {} tcp <ip> <port> ", name);
     println!("Usage: {} udp <port>", name);
     m3::exit(1);
 }
 
 
-fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats: u32) {
+fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
 
     let default_request = b"{\"Insert\":{\"key\":\"somekey\", \"value\":\"somevalue\"}}";
     // Connect to server
@@ -56,7 +56,8 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
     .expect("Could not create TCP socket");
 
     // Wait for server to listen
-    Semaphore::attach("net").unwrap().down().unwrap();
+    let mut sem = Semaphore::attach("net").unwrap().down().unwrap();
+
     socket
         .connect(Endpoint::new(ip, port))
         .unwrap_or_else(|_| panic!("{}", format!("Unable to connect to {}:{}", ip, port)));
@@ -84,20 +85,17 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
 pub fn main() -> i32 {
     let args: Vec<_> = env::args().collect();
     if args.len() < 2 {
+        println!("To few args");
         usage();
     }
 
     let nm = NetworkManager::new("net").expect("Could not connect to network manager");
 
-    if args.len() != 6 {
-        usage();
-    }
 
     let ip = args[2]
         .parse::<IpAddr>()
         .expect("Failed to parse IP address");
     let port = args[3].parse::<Port>().expect("Failed to parse port");
-    let repeats = args[5].parse::<u32>().expect("Failed to parse repeats");
-    tcp_client(nm, ip, port, args[4], repeats);
+    tcp_client(nm, ip, port);
     return 0
 }

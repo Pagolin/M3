@@ -47,7 +47,6 @@ mod driver;
 mod ports;
 mod sess;
 mod smoltcpif;
-//mod ohua_rewrites;
 
 pub const LOG_ERR: bool = true;
 pub const LOG_DEF: bool = true;

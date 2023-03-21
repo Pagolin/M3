@@ -26,7 +26,6 @@ dirs = [
     'ruststandalone',
     'rustunittests',
     'shell',
-    'smoltcploop',
     'smoltcp_client',
     'spammer',
     'standalone',

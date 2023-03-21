@@ -299,7 +299,6 @@ version = "0.1.0"
 dependencies = [
  "base",
  "bitflags",
- "local_smoltcp",
  "log",
  "m3",
  "memoffset",
@@ -538,14 +537,6 @@ dependencies = [
  "memoffset",
  "pci",
  "thread",
-]
-
-[[package]]
-name = "smoltcploop"
-version = "0.1.0"
-dependencies = [
- "local_smoltcp",
- "m3",
 ]
 
 [[package]]

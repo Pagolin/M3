@@ -22,12 +22,12 @@ use m3::vec::Vec;
 
 
 use local_smoltcp::time::{Instant as LocalInstant, Duration};
-use local_smoltcp::device;
+
 mod defines;
 mod e1000;
 mod eeprom;
 
-/// Wrapper around the E1000 driver, implementing smols Device trait
+/// Wrapper around the E1000 driver, implementing local smoltcp's Device trait
 pub struct E1000Device {
     dev: Rc<RefCell<e1000::E1000>>,
 }
@@ -48,7 +48,7 @@ impl<'a> local_smoltcp::phy::Device<'a> for E1000Device {
     type RxToken = RxToken;
     type TxToken = TxToken;
 
-    fn capabilities(&self) -> loacl_smoltcp::phy::DeviceCapabilities {
+    fn capabilities(&self) -> local_smoltcp::phy::DeviceCapabilities {
         let mut caps = local_smoltcp::phy::DeviceCapabilities::default();
         caps.max_transmission_unit = e1000::E1000::mtu();
         caps.checksum.ipv4 = local_smoltcp::phy::Checksum::None;

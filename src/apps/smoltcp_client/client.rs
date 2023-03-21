@@ -46,7 +46,8 @@ fn usage() {
 
 fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
 
-    let default_request = b"{\"Insert\":{\"key\":\"somekey\", \"value\":\"somevalue\"}}";
+    let default_request = b"OK";//b"{\"Insert\":{\"key\":\"somekey\", \"value\":\"somevalue\"}}";
+    println!("Client: Started");
     // Connect to server
     let mut socket = TcpSocket::new(
         StreamSocketArgs::new(nm)
@@ -54,31 +55,28 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
             .recv_buffer(256 * 1024),
     )
     .expect("Could not create TCP socket");
+    println!("Client: Got socket");
 
     // Wait for server to listen
-    let mut sem = Semaphore::attach("net").unwrap().down().unwrap();
+    Semaphore::attach("net").unwrap().down().unwrap();
 
     socket
         .connect(Endpoint::new(ip, port))
         .unwrap_or_else(|_| panic!("{}", format!("Unable to connect to {}:{}", ip, port)));
 
-    if VERBOSE {
-        println!("Sending operation...");
-    }
+    println!("Client: Sending operation...");
 
     socket.send(default_request).expect("send failed");
 
-    if VERBOSE {
-        println!("Receiving response...");
-    }
+    println!("Client: Receiving response...");
 
     let mut response = vec![0u8; 2];
     socket
         .recv(&mut response)
         .expect("receive response failed");
-    if VERBOSE {
-        println!("Got response.");
-    }
+
+    println!("Client: Got response.");
+
 }
 
 #[no_mangle]

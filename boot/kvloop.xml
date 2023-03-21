@@ -3,20 +3,35 @@
     <dom>
         <app args="root">
             <dom>
-                <app args="net -m 2 -d default net 192.168.69.2 " daemon="1">
-                    <serv name="net" />
-                    <tiles type="nicdev" />
+                <app args="m3fs mem $fs.size" daemon="1">
+                    <serv name="m3fs" />
+                    <physmem addr="0" size="$fs.size" />
                 </app>
             </dom>
             <dom>
-                <app args="smoltcp_server" daemon="1">
-                    <serv name="smoltcp_server" />
-                </app>
-            </dom>
-            <dom>
-                <app args="smoltcp_client tcp 192.168.69.2 6969" daemon="0">
-                    <sess name="net" args="bufs=1M socks=1" />
-                    <sem name="net" />
+                <app args="pager maxcli=4 sem=net $fs.size" usermem="768M">
+                    <sess name="m3fs" />
+                    <physmem addr="0" size="$fs.size" perm="r" />
+                    <tiles type="core" count="3" />
+                    <dom>
+                        <app args="/sbin/net -m 2 -d default net 192.168.69.1 " daemon="1">
+                            <serv name="net" />
+                            <tiles type="nicdev" />
+                        </app>
+                    </dom>
+                    <dom>
+                        <app args="/sbin/smoltcp_server" daemon="1">
+                            <serv name="smoltcp_server" />
+                            <tiles type="nicdev" />
+                            <sem name="net" />
+                        </app>
+                    </dom>
+                    <dom>
+                        <app args="/bin/smoltcp_client tcp 192.168.69.2 6969" daemon="0">
+                            <sess name="net" args="bufs=1M socks=1" />
+                            <sem name="net" />
+                        </app>
+                    </dom>
                 </app>
             </dom>
         </app>

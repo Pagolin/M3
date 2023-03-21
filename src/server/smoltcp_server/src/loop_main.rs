@@ -29,9 +29,10 @@ use core::str;
 // replacing debug!, info! and error!
 // However they are trivially defined in M3/src/libs/rust/base/src/io/mod.rs so 
 // I could probably augment them with the appropriate other definitions 
-use m3::{log, vec};
+use m3::{log, vec, println};
 use m3::col::{BTreeMap, Vec};
 use m3::tiles::Activity;
+use m3::com::Semaphore;
 
 
 use local_smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
@@ -89,7 +90,7 @@ r#"
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [
-        IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)
+        IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)
     ];
 
     let medium = device.capabilities().medium;
@@ -108,8 +109,9 @@ r#"
     // As long as I haven't figured out a sensible way of ending the loop
     // I'll just count iterations
     let mut interim_break = 0;
+    let mut semaphore_set = false;
 
-    while interim_break < 100 {
+    while interim_break < 10 {
         let timestamp = Instant::now();
         match iface.poll(timestamp, &mut device, & mut sockets) {
             Ok(_) => {}
@@ -119,22 +121,35 @@ r#"
         }
 
         let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-        //log!(DEBUG, "State {:?}", socket.state());
         if !socket.is_open() {
             socket.listen(6969).unwrap();
         }
 
+        if !semaphore_set {
+            // The client is attached to the same semaphore and will only try to send once
+            // once the server listens
+            Semaphore::attach("net").unwrap().up();
+        }
+
+
         if socket.may_recv() {
             let input = socket.recv(process_octets).unwrap();
+            println!("Server: Packet got through");
             if socket.can_send() && !input.is_empty() {
-                log!(DEBUG,
-                    "Input {:?}",
+                println!(
+                    "Server Input: {:?}",
                     str::from_utf8(input.as_ref()).unwrap_or("(invalid utf8)")
                 );
                 let outbytes = store.handle_message(&input);
-                //log!(DEBUG, "Got outbytes {:?}", str::from_utf8(&outbytes));
+                println!("Server: got outbytes {:?}", str::from_utf8(&outbytes));
                 socket.send_slice(&outbytes[..]).unwrap();
 
+            } else if input.is_empty() {
+                let outbytes = store.handle_message(b"OK");
+                socket.send_slice(&outbytes[..]).unwrap();
+                println!("Server: Input was empty, but sent OK");
+            } else {
+                println!("Server: Socket couldn't send");
             }
         } else if socket.may_send() {
             log!(DEBUG, "tcp:6969 close");
@@ -159,17 +174,18 @@ r#"
                reasonable time to wait -> we take the one from the smoltcp loopback loop
         */
         if device.needs_poll() {
+            println!("Server: Device needs poll");
             continue
         } else {
             let advised_waiting_timeout = iface.poll_delay(timestamp, &sockets);
+            println!("Server: Gonna wait a bit");
             match advised_waiting_timeout {
                 None => Activity::own().sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
                 Some(t) => Activity::own().sleep_for(t.as_m3_duration()).ok(),
             }
         };
-
-
         interim_break += 1;
     }
+    println!("Server: Going to stop now");
     0
 }

@@ -26,7 +26,6 @@ use m3::tiles::Activity;
 use m3::vec;
 
 use smoltcp::time::Instant;
-use local_smoltcp::time::{Instant as LocalInstant, Duration};
 
 extern "C" {
     pub fn axieth_init(virt: goff, phys: goff, size: usize) -> isize;
@@ -123,55 +122,6 @@ impl<'a> smoltcp::phy::Device<'a> for AXIEthDevice {
     }
 }
 
-// The trait implementation is essentially the same as in the original library
-// However to ue this device with both, the original and the adapted library we (for now)
-// need both traits.
-impl<'a> local_smoltcp::phy::Device<'a> for AXIEthDevice {
-    type RxToken = RxToken;
-    type TxToken = TxToken;
-
-    fn capabilities(&self) -> local_smoltcp::phy::DeviceCapabilities {
-        let mut caps = local_smoltcp::phy::DeviceCapabilities::default();
-        caps.max_transmission_unit = MTU;
-        // TODO use checksum offloading
-        caps.checksum.ipv4 = local_smoltcp::phy::Checksum::Both;
-        caps.checksum.udp = local_smoltcp::phy::Checksum::Both;
-        caps.checksum.tcp = local_smoltcp::phy::Checksum::Both;
-        caps
-    }
-
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        if self.rx_buf.is_none() {
-            self.rx_buf = Some(vec![0u8; MTU]);
-        }
-
-        let buf = self.rx_buf.as_mut().unwrap();
-        let res = unsafe { axieth_recv((&mut buf[..]).as_mut_ptr(), buf.len()) };
-        if res == 0 {
-            None
-        }
-        else {
-            let mut buffer = self.rx_buf.take().unwrap();
-            buffer.resize(res, 0);
-            let rx = RxToken { buffer };
-            let tx = TxToken {
-                tx_buf: self.tx_buf,
-            };
-            Some((rx, tx))
-        }
-    }
-
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        Some(TxToken {
-            tx_buf: self.tx_buf,
-        })
-    }
-
-    fn needs_poll(&self, max_duration: Option<Duration>) -> bool{
-        self.needs_poll()
-    }
-
-}
 
 pub struct RxToken {
     buffer: Vec<u8>,
@@ -185,16 +135,6 @@ impl smoltcp::phy::RxToken for RxToken {
         f(&mut self.buffer[..])
     }
 }
-
-impl smoltcp::phy::RxToken for RxToken {
-    fn consume<R, F>(mut self, _timestamp: LocalInstant, f: F) -> local_smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
-    {
-        f(&mut self.buffer[..])
-    }
-}
-
 
 pub struct TxToken {
     tx_buf: usize,
@@ -214,24 +154,6 @@ impl smoltcp::phy::TxToken for TxToken {
         match unsafe { axieth_send(buffer.as_ptr(), buffer.len()) } {
             0 => Ok(res),
             _ => Err(smoltcp::Error::Exhausted),
-        }
-    }
-}
-
-impl local_smoltcp::phy::TxToken for TxToken {
-    fn consume<R, F>(self, _timestamp: LocalInstant, len: usize, f: F) -> local_smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> local_smoltcp::Result<R>,
-    {
-        assert!(len <= 4096);
-        // safety: we know that tx_buf is properly aligned and one page large
-        let buffer = unsafe { slice::from_raw_parts_mut(self.tx_buf as *mut u8, len) };
-        // fill buffer with "to be send" data
-        let res = f(buffer)?;
-
-        match unsafe { axieth_send(buffer.as_ptr(), buffer.len()) } {
-            0 => Ok(res),
-            _ => Err(local_smoltcp::Error::Exhausted),
         }
     }
 }

@@ -33,6 +33,7 @@ use m3::{
     vfs::{BufReader, OpenFlags},
 };
 
+use core::str;
 
 const VERBOSE: bool = true;
 
@@ -64,18 +65,18 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
         .connect(Endpoint::new(ip, port))
         .unwrap_or_else(|_| panic!("{}", format!("Unable to connect to {}:{}", ip, port)));
 
-    println!("Client: Sending operation...");
+    println!("Client: Gonna send {:?}", str::from_utf8(default_request).unwrap_or("(invalid utf8)"));
 
     socket.send(default_request).expect("send failed");
 
-    println!("Client: Receiving response...");
+    println!("Client: Wait for Response");
 
     let mut response = vec![0u8; 2];
     socket
         .recv(&mut response)
         .expect("receive response failed");
 
-    println!("Client: Got response.");
+    println!("Client: Got response {:?}", str::from_utf8(&response).unwrap_or("(invalid utf8)"));
 
 }
 

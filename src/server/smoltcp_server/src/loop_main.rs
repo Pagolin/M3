@@ -53,7 +53,7 @@ fn process_octets(octets: &mut [u8]) -> (usize, Vec<u8>) {
 
 
 #[no_mangle]
-pub fn main() -> i32{
+pub fn main() -> i32 {
     log!(DEBUG,
 r#"
       ___           ___           ___           ___                    ___           ___
@@ -106,12 +106,11 @@ r#"
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);
-    // As long as I haven't figured out a sensible way of ending the loop
-    // I'll just count iterations
-    let mut interim_break = 0;
+
+    // To ensure the client sends requests only after the server started we need a semaphore from m3
     let mut semaphore_set = false;
 
-    while interim_break < 10 {
+    loop {
         let timestamp = Instant::now();
         match iface.poll(timestamp, &mut device, & mut sockets) {
             Ok(_) => {}
@@ -126,9 +125,10 @@ r#"
         }
 
         if !semaphore_set {
-            // The client is attached to the same semaphore and will only try to send once
+            // The client is attached to the same semaphore and will only try to send
             // once the server listens
             Semaphore::attach("net").unwrap().up();
+            semaphore_set = true;
         }
 
 
@@ -144,12 +144,6 @@ r#"
                 println!("Server: got outbytes {:?}", str::from_utf8(&outbytes));
                 socket.send_slice(&outbytes[..]).unwrap();
 
-            } else if input.is_empty() {
-                let outbytes = store.handle_message(b"OK");
-                socket.send_slice(&outbytes[..]).unwrap();
-                println!("Server: Input was empty, but sent OK");
-            } else {
-                println!("Server: Socket couldn't send");
             }
         } else if socket.may_send() {
             log!(DEBUG, "tcp:6969 close");
@@ -174,18 +168,16 @@ r#"
                reasonable time to wait -> we take the one from the smoltcp loopback loop
         */
         if device.needs_poll() {
-            println!("Server: Device needs poll");
+            // println!("Server: Device needs poll");
             continue
         } else {
             let advised_waiting_timeout = iface.poll_delay(timestamp, &sockets);
-            println!("Server: Gonna wait a bit");
+            // println!("Server: Gonna wait a bit");
             match advised_waiting_timeout {
                 None => Activity::own().sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
                 Some(t) => Activity::own().sleep_for(t.as_m3_duration()).ok(),
             }
         };
-        interim_break += 1;
     }
-    println!("Server: Going to stop now");
     0
 }

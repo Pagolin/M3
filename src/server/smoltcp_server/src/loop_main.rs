@@ -53,7 +53,7 @@ fn process_octets(octets: &mut [u8]) -> (usize, Vec<u8>) {
 
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() {
     log!(DEBUG,
 r#"
       ___           ___           ___           ___                    ___           ___
@@ -134,16 +134,15 @@ r#"
 
         if socket.may_recv() {
             let input = socket.recv(process_octets).unwrap();
-            println!("Server: Packet got through");
             if socket.can_send() && !input.is_empty() {
                 println!(
                     "Server Input: {:?}",
                     str::from_utf8(input.as_ref()).unwrap_or("(invalid utf8)")
                 );
-                let outbytes = store.handle_message(&input);
-                println!("Server: got outbytes {:?}", str::from_utf8(&outbytes));
-                socket.send_slice(&outbytes[..]).unwrap();
-
+                if let Some(outbytes) = store.handle_message(&input){
+                    println!("Server: got outbytes {:?}", str::from_utf8(&outbytes).unwrap());
+                    socket.send_slice(&outbytes[..]).unwrap();
+                }
             }
         } else if socket.may_send() {
             log!(DEBUG, "tcp:6969 close");
@@ -179,5 +178,4 @@ r#"
             }
         };
     }
-    0
 }

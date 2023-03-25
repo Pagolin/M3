@@ -47,7 +47,8 @@ fn usage() {
 
 fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
 
-    let default_request = b"OK";//b"{\"Insert\":{\"key\":\"somekey\", \"value\":\"somevalue\"}}";
+    let default_request = b"{\"Insert\":{\"key\":\"somekey\", \"value\":\"somevalue\"}}";
+
     println!("Client: Started");
     // Connect to server
     let mut socket = TcpSocket::new(
@@ -65,11 +66,18 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
         .connect(Endpoint::new(ip, port))
         .unwrap_or_else(|_| panic!("{}", format!("Unable to connect to {}:{}", ip, port)));
 
-    println!("Client: Gonna send {:?}", str::from_utf8(default_request).unwrap_or("(invalid utf8)"));
+
+    let request_len = default_request.len();
+
+    //println!("Client: Gonna send length info {:?}", request_len);
+    // ToDO: Remember that we use big endian to contact LvLDB (to_be_bytes)
+    socket.send(&(request_len.to_be_bytes())).expect("send failed");
+
+    //println!("Client: Gonna send {:?}", str::from_utf8(default_request).unwrap_or("(invalid utf8)"));
 
     socket.send(default_request).expect("send failed");
 
-    println!("Client: Wait for Response");
+    //println!("Client: Wait for Response");
 
     let mut response = vec![0u8; 2];
     socket

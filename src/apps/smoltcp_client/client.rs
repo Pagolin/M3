@@ -77,13 +77,23 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
 
     socket.send(default_request).expect("send failed");
 
-    //println!("Client: Wait for Response");
-
-    let mut response = vec![0u8; 2];
+    println!("Client: Wait for first response indicating packet length");
+    let mut resp_bytes = [0u8; 8];
     socket
-        .recv(&mut response)
-        .expect("receive response failed");
+        .recv(&mut resp_bytes)
+        .expect("receive length packet failed");
+    let resp_len = u64::from_be_bytes(resp_bytes);
 
+    println!("Expecting {} byte response.", resp_len);
+
+    let mut response = vec![0u8; resp_len as usize];
+    let mut rem = resp_len as usize;
+    while rem > 0 {
+        let amount = socket
+            .recv(&mut response[resp_len as usize - rem..])
+            .expect("receive response failed");
+        rem -= amount;
+    }
     println!("Client: Got response {:?}", str::from_utf8(&response).unwrap_or("(invalid utf8)"));
 
 }

@@ -96,10 +96,15 @@ impl Store {
     }
 
 
-    fn answer(&mut self, operation_bytes: Vec<u8>) -> Vec<u8>{
+    fn answer(&mut self, mut operation_bytes: Vec<u8>) -> Vec<u8>{
 	// ToDo: This used to be where we deserializa and ask the HashMap
 	//       Now we need to replace this code with a call to LevelDB
-        return operation_bytes
+        let mut count_and_bytes = operation_bytes
+            .len()
+            .to_be_bytes()
+            .to_vec();
+        count_and_bytes.append(&mut operation_bytes);
+        return count_and_bytes
     }
 
     fn get_operation_len(&self, input_bytes:& [u8]) -> Option<usize> {

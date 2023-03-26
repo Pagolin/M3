@@ -35,19 +35,22 @@ use m3::{
 
 use core::str;
 
+mod importer;
+
 const VERBOSE: bool = true;
 
 fn usage() {
     let name = env::args().next().unwrap();
-    println!("Usage: {} tcp <ip> <port> ", name);
-    println!("Usage: {} udp <port>", name);
+    println!("Usage: {} tcp <ip> <port> <workload> <repeats>", name);
     m3::exit(1);
 }
 
 
-fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
 
-    let default_request = b"{\"Insert\":{\"key\":\"somekey\", \"value\":\"somevalue\"}}";
+fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats: u32) {
+
+    // Mount fs to load binary data
+    m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on server");
 
     println!("Client: Started");
     // Connect to server
@@ -67,35 +70,52 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port) {
         .unwrap_or_else(|_| panic!("{}", format!("Unable to connect to {}:{}", ip, port)));
 
 
-    let request_len = default_request.len();
+    // open workload file
+    let workload = m3::vfs::VFS::open(wl, OpenFlags::R).expect("Could not open file");
 
-    //println!("Client: Gonna send length info {:?}", request_len);
-    // ToDO: Remember that we use big endian to contact LvLDB (to_be_bytes)
-    socket.send(&(request_len.to_be_bytes())).expect("send failed");
+    // Load workload info for the benchmark
+    let mut workload_buffer = BufReader::new(workload);
+    let workload_header = importer::WorkloadHeader::load_from_file(&mut workload_buffer);
 
-    //println!("Client: Gonna send {:?}", str::from_utf8(default_request).unwrap_or("(invalid utf8)"));
+    for _ in 0..workload_header.number_of_operations {
+        let operation = importer::Package::load_as_bytes(&mut workload_buffer);
+        debug_assert!(importer::Package::from_bytes(&operation).is_ok());
 
-    socket.send(default_request).expect("send failed");
+        if VERBOSE {
+            println!("Sending operation...");
+        }
 
-    println!("Client: Wait for first response indicating packet length");
-    let mut resp_bytes = [0u8; 8];
-    socket
-        .recv(&mut resp_bytes)
-        .expect("receive length packet failed");
-    let resp_len = u64::from_be_bytes(resp_bytes);
+        socket
+            .send(&(operation.len() as u32).to_be_bytes())
+            .expect("send failed");
+        socket.send(&operation).expect("send failed");
 
-    println!("Expecting {} byte response.", resp_len);
+        if VERBOSE {
+            println!("Receiving response...");
+        }
 
-    let mut response = vec![0u8; resp_len as usize];
-    let mut rem = resp_len as usize;
-    while rem > 0 {
-        let amount = socket
-            .recv(&mut response[resp_len as usize - rem..])
-            .expect("receive response failed");
-        rem -= amount;
+        let mut resp_bytes = [0u8; 8];
+        socket
+            .recv(&mut resp_bytes)
+            .expect("receive response header failed");
+        let resp_len = u64::from_be_bytes(resp_bytes);
+
+        if VERBOSE {
+            println!("Expecting {} byte response.", resp_len);
+        }
+
+        let mut response = vec![0u8; resp_len as usize];
+        let mut rem = resp_len as usize;
+        while rem > 0 {
+            let amount = socket
+                .recv(&mut response[resp_len as usize - rem..])
+                .expect("receive response failed");
+            rem -= amount;
+        }
+        if VERBOSE {
+            println!("Client: Got response {:?}", str::from_utf8(&response).unwrap_or("(invalid utf8)"));
+        }
     }
-    println!("Client: Got response {:?}", str::from_utf8(&response).unwrap_or("(invalid utf8)"));
-
 }
 
 #[no_mangle]
@@ -107,12 +127,15 @@ pub fn main() -> i32 {
     }
 
     let nm = NetworkManager::new("net").expect("Could not connect to network manager");
-
+    if args.len() != 6 {
+        usage();
+    }
 
     let ip = args[2]
         .parse::<IpAddr>()
         .expect("Failed to parse IP address");
     let port = args[3].parse::<Port>().expect("Failed to parse port");
-    tcp_client(nm, ip, port);
+    let repeats = args[5].parse::<u32>().expect("Failed to parse repeats");
+    tcp_client(nm, ip, port, args[4], repeats);
     return 0
 }

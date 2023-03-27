@@ -78,16 +78,16 @@ impl Store {
 
             self.unfinished_operation.append(&mut length_bytes);
             self.unfinished_operation.append(&mut operation_bytes);
-            println!("To few bytes for operation. We stored {:?} for later", str::from_utf8(&self.unfinished_operation));
+            println!("To few bytes for operation. We stored {:?} bytes for later", self.unfinished_operation.len());
             // We're done until te next packet arrives
             return None
         } else {
             let mut remainder = operation_bytes.split_off(op_len);
             self.unfinished_operation = remainder;
             println!("Sufficient bytes for operation.\
-                     We process {:?},\n and store {:?} for later"
-                    , str::from_utf8(&operation_bytes)
-                     , str::from_utf8(&self.unfinished_operation));
+                     We process {:?} bytes ,\n and store {:?} bytes for later"
+                    , operation_bytes.len()
+                     , self.unfinished_operation.len());
             let answer = self.answer(operation_bytes);
             Some(answer)
         }

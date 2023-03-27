@@ -52,7 +52,10 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
     // Mount fs to load binary data
     m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on server");
 
-    println!("Client: Started");
+    if VERBOSE{
+        println!("Client: Started");
+    }
+
     // Connect to server
     let mut socket = TcpSocket::new(
         StreamSocketArgs::new(nm)
@@ -60,7 +63,10 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
             .recv_buffer(256 * 1024),
     )
     .expect("Could not create TCP socket");
-    println!("Client: Got socket");
+    if VERBOSE{
+        println!("Client: Got socket");
+    }
+
 
     // Wait for server to listen
     Semaphore::attach("net").unwrap().down().unwrap();
@@ -86,7 +92,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
         }
 
         socket
-            .send(&(operation.len() as u32).to_be_bytes())
+            .send(&operation.len().to_be_bytes())
             .expect("send failed");
         socket.send(&operation).expect("send failed");
 
@@ -104,6 +110,9 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
             println!("Expecting {} byte response.", resp_len);
         }
 
+        // FIXME: The server will send  ONLY a String "ERROR" iff it can not
+        //        parse a length for a new operation. We need to handle this or the client,
+        //        and hence the Simulation will be stuck in the while rem > 0 loop.
         let mut response = vec![0u8; resp_len as usize];
         let mut rem = resp_len as usize;
         while rem > 0 {
@@ -113,7 +122,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
             rem -= amount;
         }
         if VERBOSE {
-            println!("Client: Got response {:?}", str::from_utf8(&response).unwrap_or("(invalid utf8)"));
+            println!("Client: Got  {:?} response bytes", response.len());
         }
     }
 }

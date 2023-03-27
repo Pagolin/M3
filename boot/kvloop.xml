@@ -33,7 +33,7 @@
                         </app>
                     </dom>
                     <dom>
-                        <app args="/bin/smoltcp_client tcp 192.168.69.2 6969 /data/small-workload.wl 1" daemon="0">
+                        <app args="/bin/smoltcp_client tcp 192.168.69.2 6969 /ycsb_workloads/small-workload.wl 1" daemon="0">
                             <sess name="net" args="bufs=1M socks=1" />
                             <sess lname="m3fs" gname="app_m3fs" />
                             <sem name="net" />

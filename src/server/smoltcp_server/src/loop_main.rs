@@ -74,7 +74,7 @@ r#"
 
 
     let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);
-    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);
+    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 2048]);
     let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     #[cfg(target_vendor = "gem5")]
@@ -97,7 +97,7 @@ r#"
     let mut builder = InterfaceBuilder::new(vec![]).ip_addrs(ip_addrs);
 
 
-    let mut out_packet_buffer = [0u8; 1024];
+    let mut out_packet_buffer = [0u8; 1060];
 
     if medium == Medium::Ethernet {
         builder = builder.hardware_addr(ethernet_addr.into()).neighbor_cache(neighbor_cache);
@@ -135,12 +135,14 @@ r#"
         if socket.may_recv() {
             let input = socket.recv(process_octets).unwrap();
             if socket.can_send() && !input.is_empty() {
-                println!(
-                    "Server Input: {:?}",
-                    str::from_utf8(input.as_ref()).unwrap_or("(invalid utf8)")
+                log!(DEBUG,
+                    "Server Input: {:?} bytes", input.len()
                 );
                 if let Some(outbytes) = store.handle_message(&input){
-                    println!("Server: got outbytes {:?}", str::from_utf8(&outbytes).unwrap());
+                    log!(DEBUG,"Server: got {:?} outbytes ", outbytes.len());
+                    // FIXME: Outbytes that don't fit in the sending buffer will be lost.
+                    //        We need an intermediate buffer to account for this
+
                     socket.send_slice(&outbytes[..]).unwrap();
                 }
             }

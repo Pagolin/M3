@@ -15,7 +15,8 @@ dirs = [
     'rust',
     'support',
     'thread',
-    'local_smoltcp'
+    'local_smoltcp',
+    'dbwrapper'
 ]
 
 def build(gen, env):

@@ -10,7 +10,7 @@ const USIZE_LENGTH:usize = 8;
 // extern crate libc;
 // use libc::size_t;
 
-#[link(name = "libdbwrap")]
+#[link(name = "libdbwrapper")]
 extern {
     fn test_function(testin: bool) -> bool;
 }

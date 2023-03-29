@@ -9,12 +9,12 @@ path = "src/loop_main.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-m3 = { path = "../../../libs/rust/m3" }
-base = { path = "../../../libs/rust/base" }
-thread = { path = "../../../libs/rust/thread" }
-pci = { path = "../../../libs/rust/pci" }
+m3 = { path = "../../libs/rust/m3" }
+base = { path = "../../libs/rust/base" }
+thread = { path = "../../libs/rust/thread" }
+pci = { path = "../../libs/rust/pci" }
 bitflags = "1.2.1"
 log = "0.4.11"
 memoffset = { version = "0.6.5", features = [ "unstable_const" ] }
 
-local_smoltcp = { path= "../../../libs/local_smoltcp", default-features = true}
+local_smoltcp = { path= "../../libs/local_smoltcp", default-features = true}

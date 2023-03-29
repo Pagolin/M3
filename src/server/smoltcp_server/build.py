@@ -1,6 +1,8 @@
+dirs = [
+    'dbwrapper',
+    'smoltcp_server',
+]
+
 def build(gen, env):
-    if env['TGT'] == 'hw':
-        libs = ['axieth', 'base', 'supc++']
-    else:
-        libs = []
-    env.m3_rust_exe(gen, out = 'smoltcp_server', libs = libs, dir = 'sbin')
+    for d in dirs:
+        env.sub_build(gen, d)

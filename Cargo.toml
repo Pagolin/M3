@@ -38,7 +38,7 @@ members = [
     "src/server/disk",
     "src/server/m3fs",
     "src/server/net",
-    "src/server/smoltcp_server",
+    "src/server/smoltcp_server/smoltcp_server",
     "src/libs/local_smoltcp",
     "src/server/pager",
     "src/server/pipes",

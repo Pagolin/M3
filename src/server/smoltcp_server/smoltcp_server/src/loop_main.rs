@@ -69,7 +69,7 @@ r#"
      \/__/         \/__/         \/__/         \/__/                  \|__|
 "#
     );
-    log!(DEBUG, "Running smoltcp server");
+    log!(DEBUG, "Running smoltcp smoltcp_server");
     let mut store = Store::default();
 
 
@@ -107,7 +107,7 @@ r#"
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);
 
-    // To ensure the client sends requests only after the server started we need a semaphore from m3
+    // To ensure the client sends requests only after the smoltcp_server started we need a semaphore from m3
     let mut semaphore_set = false;
 
     loop {
@@ -126,7 +126,7 @@ r#"
 
         if !semaphore_set {
             // The client is attached to the same semaphore and will only try to send
-            // once the server listens
+            // once the smoltcp_server listens
             Semaphore::attach("net").unwrap().up();
             semaphore_set = true;
         }
@@ -158,7 +158,7 @@ r#"
                 -> wait until the device is ready BUT at most for the advisory waiting time
             3. If poll_delay returns None
                 ->   wait until the device becomes available again
-           Logic in the server/net loop:
+           Logic in the smoltcp_server/net loop:
             1. If device.needs_poll() -> continue polling
             2. If advised waiting time is Some(0) -> continue polling
             3. If advised waiting time is Some(t) -> wait for t

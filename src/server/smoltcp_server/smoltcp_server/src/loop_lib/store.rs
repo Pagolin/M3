@@ -7,6 +7,14 @@ use core::convert::TryFrom;
 
 const USIZE_LENGTH:usize = 8;
 
+// extern crate libc;
+// use libc::size_t;
+
+#[link(name = "libdbwrap")]
+extern {
+    fn test_function(testin: bool) -> bool;
+}
+
 #[derive(Clone, Default)]
 pub struct Store {
     // ToDo: Replace <data> with a handle to LevelDB
@@ -30,7 +38,7 @@ impl Store {
         complete an operation) and
         b) bytes of an incomplete operation
 
-        The 'original' lvldb server would try to receive until it as a complete operation.
+        The 'original' lvldb smoltcp_server would try to receive until it as a complete operation.
         The (roughly) equivalent behaviour in our scenario is to return no answer and wait
         for the next input.
         */
@@ -91,19 +99,19 @@ impl Store {
             let answer = self.answer(operation_bytes);
             Some(answer)
         }
-
-
     }
 
 
     fn answer(&mut self, mut operation_bytes: Vec<u8>) -> Vec<u8>{
-	// ToDo: This used to be where we deserializa and ask the HashMap
+	// ToDo: This used to be where we deserialize and ask the HashMap
 	//       Now we need to replace this code with a call to LevelDB
         let mut count_and_bytes = operation_bytes
             .len()
             .to_be_bytes()
             .to_vec();
         count_and_bytes.append(&mut operation_bytes);
+        let x = unsafe {test_function(true)};
+        println!("Call worked x is {:?}", x);
         return count_and_bytes
     }
 

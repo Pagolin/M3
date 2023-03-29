@@ -50,13 +50,13 @@ fn usage() {
 fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats: u32) {
 
     // Mount fs to load binary data
-    m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on server");
+    m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on smoltcp_server");
 
     if VERBOSE{
         println!("Client: Started");
     }
 
-    // Connect to server
+    // Connect to smoltcp_server
     let mut socket = TcpSocket::new(
         StreamSocketArgs::new(nm)
             .send_buffer(64 * 1024)
@@ -68,7 +68,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
     }
 
 
-    // Wait for server to listen
+    // Wait for smoltcp_server to listen
     Semaphore::attach("net").unwrap().down().unwrap();
 
     socket
@@ -110,7 +110,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
             println!("Expecting {} byte response.", resp_len);
         }
 
-        // FIXME: The server will send  ONLY a String "ERROR" iff it can not
+        // FIXME: The smoltcp_server will send  ONLY a String "ERROR" iff it can not
         //        parse a length for a new operation. We need to handle this or the client,
         //        and hence the Simulation will be stuck in the while rem > 0 loop.
         let mut response = vec![0u8; resp_len as usize];

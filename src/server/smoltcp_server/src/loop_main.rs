@@ -13,6 +13,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details.
  */
+// ffi is the foreign function interface and we need this flag to
+// exclude currently unstable features
+#![feature(core_ffi_c)]
 
 // for offset_of with unstable_const feature
 #![feature(const_ptr_offset_from)]

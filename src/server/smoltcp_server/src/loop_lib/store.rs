@@ -4,15 +4,16 @@ use m3::serde::{Deserialize, Serialize};
 use m3::serialize::M3Deserializer;
 use core::{str, array};
 use core::convert::TryFrom;
+use core::ffi::c_int;
 
 const USIZE_LENGTH:usize = 8;
 
 // extern crate libc;
 // use libc::size_t;
 
-#[link(name = "libdbwrapper")]
+//#[link(name = "libdbwrapper", kind = "static")]
 extern {
-    fn test_function(testin: bool) -> bool;
+    fn test_function(testin: c_int) -> c_int;
 }
 
 #[derive(Clone, Default)]
@@ -110,7 +111,7 @@ impl Store {
             .to_be_bytes()
             .to_vec();
         count_and_bytes.append(&mut operation_bytes);
-        let x = unsafe {test_function(true)};
+        let x = unsafe {test_function(23)};
         println!("Call worked x is {:?}", x);
         return count_and_bytes
     }

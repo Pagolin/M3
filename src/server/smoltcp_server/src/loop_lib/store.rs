@@ -1,32 +1,62 @@
 use m3::col::{String, Vec, ToString};
 use m3::{vec, log, println};
-use m3::serde::{Deserialize, Serialize};
-use m3::serialize::M3Deserializer;
 use core::{str, array};
 use core::convert::TryFrom;
-use core::ffi::c_int;
+use core::ffi::{c_int, c_char};
 
 const USIZE_LENGTH:usize = 8;
 
-// extern crate libc;
-// use libc::size_t;
 
-//#[link(name = "libdbwrapper", kind = "static")]
-extern {
-    fn test_function(testin: c_int) -> c_int;
+
+opaque!{
+    /// Opaque handle representing an opened database. The handle is thread-safe.
+    pub struct leveldb_t;
 }
 
-#[derive(Clone, Default)]
+extern "C" {
+    fn test_function(testin: c_int) -> c_int;
+    //fn leveldb_open_wrapper(db: *const c_char) -> *mut leveldb_t;
+    // For now we'll use a default name
+    fn leveldb_open_wrapper() -> *mut leveldb_t;
+    fn leveldb_close(db: *mut leveldb_t);
+}
+
+
+
+struct RawDB {
+    ptr: *mut leveldb_t,
+}
+
+impl RawDB {
+    fn new(name:&str) -> Self {
+        //let cname = CStr::new(name).unwrap();
+        //let c_chars: *const c_char = cname.as_ptr() as *const c_char;
+        RawDB { ptr: unsafe {leveldb_open_wrapper()}}
+    }
+}
+
+impl Drop for RawDB {
+    fn drop(&mut self) {
+        unsafe {
+            leveldb_close(self.ptr);
+        }
+    }
+}
+
+
 pub struct Store {
     // ToDo: Replace <data> with a handle to LevelDB
-    data: Vec<String>,
+    data: RawDB,
     unfinished_operation : Vec<u8>,
 }
 
 impl Store {
-    //pub fn default() -> Store {
-      //  unimplemented!()
-    //}
+    pub fn new(name: &str) -> Store {
+        Store {
+            data: RawDB::new(name),
+            unfinished_operation: vec![],
+        }
+    }
 
     pub fn handle_message(&mut self, input_bytes:&[u8]) -> Option<Vec<u8>>{
         /*

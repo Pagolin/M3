@@ -16,6 +16,8 @@
 // ffi is the foreign function interface and we need this flag to
 // exclude currently unstable features
 #![feature(core_ffi_c)]
+// I mightneed this later for converting &str to c_char* without using std
+//#![feature(slice_internals)]
 
 // for offset_of with unstable_const feature
 #![feature(const_ptr_offset_from)]
@@ -23,6 +25,12 @@
 
 mod loop_lib;
 mod driver;
+
+// We need this to keep types opaque when interfacing with leveldb
+// in the store but it must be defined in the crate root (here).
+#[macro_use]
+extern crate ffi_opaque;
+// extern crate libc;
 
 use crate::driver::*;
 use loop_lib::store::{Store};
@@ -73,7 +81,7 @@ r#"
 "#
     );
     log!(DEBUG, "Running smoltcp smoltcp_server");
-    let mut store = Store::default();
+    let mut store = Store::new("kvstore");
 
 
     let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);

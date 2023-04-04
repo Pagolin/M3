@@ -99,6 +99,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ffi-opaque"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec54ac60a7f2ee9a97cad9946f9bf629a3bc6a7ae59e68983dc9318f5a54b81a"
+
+[[package]]
 name = "fs"
 version = "0.1.0"
 dependencies = [
@@ -531,6 +537,7 @@ version = "0.1.0"
 dependencies = [
  "base",
  "bitflags",
+ "ffi-opaque",
  "local_smoltcp",
  "log",
  "m3",

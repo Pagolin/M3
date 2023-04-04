@@ -19,11 +19,18 @@
 
 #include <m3/Exception.h>
 #include <m3/stream/Standard.h>
-
 #include <sstream>
+#include <endian.h>
+
+//using namespace m3;
 
 #define DEBUG 0
 
+const char* dbName = "defaultDB";
+
+struct leveldb_t {
+  leveldb::DB* rep;
+};
 
 int test_function(int testin) {
     int out = testin + 3;
@@ -76,11 +83,28 @@ size_t from_bytes(uint8_t *package_buffer, size_t package_size, Package &pkg) {
     return pos;
 }
 
-Executor *Executor::create(const char *db) {
-    return new LevelDBExecutor(db);
-}
+// leveldb_t* leveldb_open_wrapper(const char* dbname) {
+leveldb_t* leveldb_open_wrapper() {
+    // We don't want to handle options outside c/c++
+    // but we need to use the leveldb_t struct as interface to rust
+    // so here we wrap option handling similar to the executor initialization
+    leveldb::DB* dbptr;
+    leveldb::Options options;
 
-LevelDBExecutor::LevelDBExecutor(const char *db)
+    options.create_if_missing = true;
+    leveldb::Status status = leveldb::DB::Open(options, dbName, &dbptr);
+
+    //if(!status.ok())
+      //VTHROW(m3::Errors::INV_ARGS,
+        //     "Unable to open/create DB '" << dbName << "': " << status.ToString().c_str());
+
+    leveldb_t* result = new leveldb_t;
+    result->rep = dbptr;
+    return result;
+    //return nullptr;
+}
+/*
+Executor::Executor(const char *db)
     : _t_insert(),
       _t_read(),
       _t_scan(),
@@ -97,11 +121,11 @@ LevelDBExecutor::LevelDBExecutor(const char *db)
                "Unable to open/create DB '" << db << "': " << status.ToString().c_str());
 }
 
-LevelDBExecutor::~LevelDBExecutor() {
+Executor::~Executor() {
     delete _db;
 }
 
-void LevelDBExecutor::reset_stats() {
+void Executor::reset_stats() {
     _n_insert = 0;
     _n_read = 0;
     _n_scan = 0;
@@ -112,7 +136,7 @@ void LevelDBExecutor::reset_stats() {
     _t_update = m3::TimeDuration::ZERO;
 }
 
-void LevelDBExecutor::print_stats(size_t num_ops) {
+void Executor::print_stats(size_t num_ops) {
     m3::TimeDuration avg;
     m3::cout << "    Key Value Database Timings for " << num_ops << " operations:\n";
 
@@ -130,7 +154,7 @@ void LevelDBExecutor::print_stats(size_t num_ops) {
 }
 
 
-size_t LevelDBExecutor::execute(uint8_t *package_buffer, size_t package_size) {
+size_t Executor::execute(uint8_t *package_buffer, size_t package_size) {
 // We've handled the cases of missing length and
 // to few request bytes in Rust already when we call this function
 // Also in the original test case the response is just an array of 0's in the
@@ -146,7 +170,7 @@ size_t LevelDBExecutor::execute(uint8_t *package_buffer, size_t package_size) {
     return res_bytes;
 }
 
-size_t LevelDBExecutor::inner_execute(Package &pkg) {
+size_t Executor::inner_execute(Package &pkg) {
 #if DEBUG > 0
     m3::cout << "Executing operation " << (int)pkg.op << " with table " << (int)pkg.table;
     m3::cout << "  num_kvs=" << (int)pkg.num_kvs << ", key=" << pkg.key;
@@ -226,7 +250,7 @@ static std::pair<uint64_t, std::string> unpack_key(const std::string &key_field)
     return std::make_pair(key, field);
 }
 
-void LevelDBExecutor::exec_insert(Package &pkg) {
+void Executor::exec_insert(Package &pkg) {
     leveldb::WriteOptions writeOptions;
     for(auto &pair : pkg.kv_pairs) {
         auto key = pack_key(pkg.key, pair.first, "field");
@@ -237,7 +261,7 @@ void LevelDBExecutor::exec_insert(Package &pkg) {
     }
 }
 
-std::vector<std::pair<std::string, std::string>> LevelDBExecutor::exec_read(Package &pkg) {
+std::vector<std::pair<std::string, std::string>> Executor::exec_read(Package &pkg) {
     std::vector<std::pair<std::string, std::string>> res;
     // If the k,v pairs are empty, this means "all fields" should be read
     if(pkg.kv_pairs.empty()) {
@@ -277,7 +301,7 @@ static bool take_field(Package &pkg, const std::string &field) {
     return false;
 }
 
-std::vector<std::pair<std::string, std::string>> LevelDBExecutor::exec_scan(Package &pkg) {
+std::vector<std::pair<std::string, std::string>> Executor::exec_scan(Package &pkg) {
     std::vector<std::pair<std::string, std::string>> res;
     size_t rem = pkg.scan_length;
     uint64_t last_key = 0;
@@ -301,3 +325,4 @@ std::vector<std::pair<std::string, std::string>> LevelDBExecutor::exec_scan(Pack
     }
     return res;
 }
+*/

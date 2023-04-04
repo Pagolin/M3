@@ -7,11 +7,16 @@
 #include <vector>
 
 #include "leveldb/db.h"
-
+// This header file exports c extern C bindings to the library
+#include "leveldb/c.h"
+#include "leveldb/options.h"
 
 extern "C" {
 
 int test_function(int testin);
+
+// leveldb_t* leveldb_open_wrapper(const char* db);
+leveldb_t* leveldb_open_wrapper();
 
 enum Operation {
     INSERT = 1,
@@ -29,26 +34,15 @@ struct Package {
     uint64_t scan_length;
     std::vector<std::pair<std::string, std::string>> kv_pairs;
 };
-
+/*
 class Executor {
 public:
-    static Executor *create(const char *db);
+    explicit Executor(const char *db);
+    ~Executor();
 
-    virtual ~Executor() {
-    }
-    virtual size_t execute(uint8_t *package_buffer, size_t package_size) = 0;
-    virtual void reset_stats() = 0;
-    virtual void print_stats(size_t num_ops) = 0;
-};
-
-class LevelDBExecutor : public Executor {
-public:
-    explicit LevelDBExecutor(const char *db);
-    ~LevelDBExecutor();
-
-    virtual size_t execute(uint8_t *package_buffer, size_t package_size) override;
-    virtual void reset_stats() override;
-    virtual void print_stats(size_t num_ops) override;
+    size_t execute(uint8_t *package_buffer, size_t package_size);
+    void reset_stats();
+    void print_stats(size_t num_ops);
 
 private:
     size_t inner_execute(Package &pkg);
@@ -68,5 +62,6 @@ private:
 
     leveldb::DB *_db;
 };
+*/
 
 }

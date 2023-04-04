@@ -16,5 +16,8 @@ pci = { path = "../../libs/rust/pci" }
 bitflags = "1.2.1"
 log = "0.4.11"
 memoffset = { version = "0.6.5", features = [ "unstable_const" ] }
+# To create bindings to leveldb
+ffi-opaque = "2"
+#libc = "0.2.*"
 
 local_smoltcp = { path= "../../libs/local_smoltcp", default-features = true}

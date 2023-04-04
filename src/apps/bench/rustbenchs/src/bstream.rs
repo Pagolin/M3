@@ -34,11 +34,12 @@ pub fn run(t: &mut dyn WvTester) {
 
 fn pingpong_1u64(t: &mut dyn WvTester) {
     let reply_gate = RecvGate::def();
-    let mut rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
+    let rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
+    // manually activate the RecvGate, because we are communicating with ourself
     wv_assert_ok!(rgate.activate());
     let sgate = wv_assert_ok!(SendGate::new_with(SGateArgs::new(&rgate).credits(1)));
 
-    let mut prof = Profiler::default();
+    let prof = Profiler::default();
 
     wv_perf!(
         "pingpong with (1 * u64) msgs",
@@ -57,11 +58,11 @@ fn pingpong_1u64(t: &mut dyn WvTester) {
 
 fn pingpong_2u64(t: &mut dyn WvTester) {
     let reply_gate = RecvGate::def();
-    let mut rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
+    let rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
     wv_assert_ok!(rgate.activate());
     let sgate = wv_assert_ok!(SendGate::new_with(SGateArgs::new(&rgate).credits(1)));
 
-    let mut prof = Profiler::default();
+    let prof = Profiler::default();
 
     wv_perf!(
         "pingpong with (2 * u64) msgs",
@@ -82,11 +83,11 @@ fn pingpong_2u64(t: &mut dyn WvTester) {
 
 fn pingpong_4u64(t: &mut dyn WvTester) {
     let reply_gate = RecvGate::def();
-    let mut rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
+    let rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
     wv_assert_ok!(rgate.activate());
     let sgate = wv_assert_ok!(SendGate::new_with(SGateArgs::new(&rgate).credits(1)));
 
-    let mut prof = Profiler::default();
+    let prof = Profiler::default();
 
     wv_perf!(
         "pingpong with (4 * u64) msgs",
@@ -111,11 +112,11 @@ fn pingpong_4u64(t: &mut dyn WvTester) {
 
 fn pingpong_str(t: &mut dyn WvTester) {
     let reply_gate = RecvGate::def();
-    let mut rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
+    let rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
     wv_assert_ok!(rgate.activate());
     let sgate = wv_assert_ok!(SendGate::new_with(SGateArgs::new(&rgate).credits(1)));
 
-    let mut prof = Profiler::default().warmup(50);
+    let prof = Profiler::default().warmup(50);
 
     wv_perf!(
         "pingpong with (String) msgs",
@@ -134,11 +135,11 @@ fn pingpong_str(t: &mut dyn WvTester) {
 
 fn pingpong_strslice(t: &mut dyn WvTester) {
     let reply_gate = RecvGate::def();
-    let mut rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
+    let rgate = wv_assert_ok!(RecvGate::new(MSG_ORD, MSG_ORD));
     wv_assert_ok!(rgate.activate());
     let sgate = wv_assert_ok!(SendGate::new_with(SGateArgs::new(&rgate).credits(1)));
 
-    let mut prof = Profiler::default();
+    let prof = Profiler::default();
 
     wv_perf!(
         "pingpong with (&str) msgs",

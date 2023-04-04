@@ -23,7 +23,6 @@ use m3::{wv_assert_err, wv_run_test};
 
 pub fn run(t: &mut dyn WvTester) {
     wv_run_test!(t, create);
-    #[cfg(not(target_vendor = "host"))]
     wv_run_test!(t, destroy);
 }
 
@@ -36,19 +35,17 @@ fn create(t: &mut dyn WvTester) {
     );
 }
 
-// requires a TileMux with notification support
-#[cfg(not(target_vendor = "host"))]
 fn destroy(t: &mut dyn WvTester) {
     use m3::cap::Selector;
     use m3::com::{recv_msg, SGateArgs, SendGate};
     use m3::tiles::{Activity, ChildActivity, RunningActivity, Tile};
     use m3::{reply_vmsg, send_recv, wv_assert_eq, wv_assert_ok};
 
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut child = wv_assert_ok!(ChildActivity::new(tile, "test"));
 
     let act = {
-        let mut rg = wv_assert_ok!(RecvGate::new_with(
+        let rg = wv_assert_ok!(RecvGate::new_with(
             RGateArgs::default().order(6).msg_order(6)
         ));
         // TODO actually, we could create it in the child, but this is not possible in rust atm
@@ -75,10 +72,8 @@ fn destroy(t: &mut dyn WvTester) {
                 send_recv!(&sg, RecvGate::def(), i, i + 1, i + 2),
                 Code::NoSEP
             );
-            0
+            Ok(())
         }));
-
-        wv_assert_ok!(rg.activate());
 
         for i in 0..10 {
             let mut msg = wv_assert_ok!(recv_msg(&rg));
@@ -96,5 +91,5 @@ fn destroy(t: &mut dyn WvTester) {
         act
     };
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }

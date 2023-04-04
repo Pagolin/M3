@@ -1,7 +1,6 @@
 dirs = [
     'arith',
     'crypto',
-    'console',
     'disk',
     'm3fs',
     'net',
@@ -12,6 +11,7 @@ dirs = [
     'timer',
     'vterm'
 ]
+
 
 def build(gen, env):
     for d in dirs:

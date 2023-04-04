@@ -23,36 +23,36 @@ mod regions;
 
 use core::ops::DerefMut;
 
+use m3::boxed::Box;
 use m3::cap::Selector;
-use m3::cell::{LazyReadOnlyCell, LazyStaticRefCell, StaticRefCell};
+use m3::cell::{LazyReadOnlyCell, LazyStaticRefCell};
 use m3::col::{String, ToString, Vec};
-use m3::com::{GateIStream, MGateArgs, MemGate, RecvGate, SGateArgs, SendGate};
-use m3::env;
+use m3::com::{GateIStream, MemGate, RecvGate, SGateArgs, SendGate};
 use m3::errors::{Code, Error, VerboseError};
 use m3::format;
 use m3::kif;
 use m3::log;
-use m3::math;
-use m3::println;
-use m3::server::{
-    CapExchange, Handler, RequestHandler, Server, SessId, SessionContainer, DEF_MSG_SIZE,
-};
+use m3::server::{CapExchange, Handler, RequestHandler, Server, SessId, SessionContainer};
 use m3::session::{ClientSession, Pager, PagerOp, ResMng, M3FS};
-use m3::tcu::{Label, TileId};
+use m3::tcu::Label;
 use m3::tiles::{Activity, ActivityArgs, ChildActivity};
+use m3::util::math;
 use m3::vfs;
 
 use addrspace::AddrSpace;
-use resmng::childs::{self, Child, OwnChild};
-use resmng::{requests, sendqueue, subsys};
+
+use resmng::childs::{self, Child, ChildManager, OwnChild};
+use resmng::config;
+use resmng::requests;
+use resmng::resources::{tiles, Resources};
+use resmng::sendqueue;
+use resmng::subsys;
 
 pub const LOG_DEF: bool = false;
 
 static PGHDL: LazyStaticRefCell<PagerReqHandler> = LazyStaticRefCell::default();
 static REQHDL: LazyReadOnlyCell<RequestHandler> = LazyReadOnlyCell::default();
 static MOUNTS: LazyStaticRefCell<Vec<(String, String)>> = LazyStaticRefCell::default();
-static PMP_TILES: StaticRefCell<Vec<TileId>> = StaticRefCell::new(Vec::new());
-static SETTINGS: LazyStaticRefCell<PagerSettings> = LazyStaticRefCell::default();
 
 struct PagerReqHandler {
     sel: Selector,
@@ -65,7 +65,7 @@ impl PagerReqHandler {
         let crt = self.sessions.get(sid).unwrap().creator();
         self.sessions.remove(crt, sid);
         // ignore all potentially outstanding messages of this session
-        rgate.drop_msgs_with(sid as Label);
+        rgate.drop_msgs_with(sid as Label).unwrap();
     }
 }
 
@@ -166,81 +166,103 @@ fn get_mount(name: &str) -> Result<String, VerboseError> {
     Ok(our_path)
 }
 
-fn start_child_async(child: &mut OwnChild) -> Result<(), VerboseError> {
-    // send gate for resmng
-    #[allow(clippy::useless_conversion)]
-    let resmng_sgate = SendGate::new_with(
-        SGateArgs::new(&requests::rgate())
-            .credits(1)
-            .label(Label::from(child.id())),
-    )?;
+struct PagedChildStarter {}
 
-    // create pager session for child (creator=0 here because we create all sessions ourself)
-    let (sel, sid, child_sgate) = {
-        let mut hdl = PGHDL.borrow_mut();
-        let srv_sel = hdl.sel;
-        let (sel, sid) = hdl.open(0, srv_sel, "")?;
-        let aspace = hdl.sessions.get_mut(sid).unwrap();
-        let child_sgate = aspace.add_sgate(REQHDL.get().recv_gate()).unwrap();
-        (sel, sid, child_sgate)
-    };
-    let sess = ClientSession::new_bind(sel);
-    #[allow(clippy::useless_conversion)]
-    let pager_sgate = SendGate::new_with(
-        SGateArgs::new(REQHDL.get().recv_gate())
-            .credits(1)
-            .label(Label::from(sid as u32)),
-    )?;
+impl subsys::ChildStarter for PagedChildStarter {
+    fn start(
+        &mut self,
+        reqs: &requests::Requests,
+        res: &mut Resources,
+        child: &mut OwnChild,
+    ) -> Result<(), VerboseError> {
+        // send gate for resmng
+        let resmng_sgate = SendGate::new_with(
+            SGateArgs::new(reqs.recv_gate())
+                .credits(1)
+                .label(Label::from(child.id())),
+        )?;
 
-    // create child activity
-    let tile_usage = child.child_tile().unwrap();
-    let mut act = ChildActivity::new_with(
-        tile_usage.tile_obj().clone(),
-        ActivityArgs::new(child.name())
-            .resmng(ResMng::new(resmng_sgate))
-            .pager(Pager::new(sess, pager_sgate, child_sgate)?)
-            .kmem(child.kmem().unwrap()),
-    )?;
+        // create pager session for child (creator=0 here because we create all sessions ourself)
+        let (sel, sid, child_sgate) = {
+            let mut hdl = PGHDL.borrow_mut();
+            let srv_sel = hdl.sel;
+            let (sel, sid) = hdl.open(0, srv_sel, "")?;
+            let aspace = hdl.sessions.get_mut(sid).unwrap();
+            let child_sgate = aspace.add_sgate(REQHDL.get().recv_gate()).unwrap();
+            (sel, sid, child_sgate)
+        };
+        let sess = ClientSession::new_bind(sel);
+        let pager_sgate = SendGate::new_with(
+            SGateArgs::new(REQHDL.get().recv_gate())
+                .credits(1)
+                .label(Label::from(sid as u32)),
+        )?;
 
-    // TODO make that more flexible
-    // add PMP EP for file system
-    {
-        let mut pmp_tiles = PMP_TILES.borrow_mut();
-        if !pmp_tiles.iter().any(|id| *id == tile_usage.tile_id()) {
-            let size = SETTINGS.borrow().fs_size;
-            let fs_mem = MemGate::new_with(MGateArgs::new(size, kif::Perm::R).addr(0))?;
-            child.our_tile().add_mem_region(fs_mem, size, true)?;
-            pmp_tiles.push(tile_usage.tile_id());
+        // create child activity
+        let mut act = ChildActivity::new_with(
+            child.child_tile().unwrap().tile_obj().clone(),
+            ActivityArgs::new(child.name())
+                .resmng(ResMng::new(resmng_sgate))
+                .pager(Pager::new(sess, pager_sgate, child_sgate)?)
+                .kmem(child.kmem().unwrap()),
+        )?;
+
+        // pass subsystem info to child, if it's a subsystem
+        let id = child.id();
+        if let Some(sub) = child.subsys() {
+            sub.finalize_async(res, id, &mut act)?;
         }
+
+        // mount file systems for childs
+        for m in child.cfg().mounts() {
+            let path = get_mount(m.fs())?;
+            act.add_mount(m.path(), &path);
+        }
+
+        // init address space (give it activity and mgate selector)
+        let mut hdl = PGHDL.borrow_mut();
+        let aspace = hdl.sessions.get_mut(sid).unwrap();
+        aspace.init(Some(child.id()), Some(act.sel())).unwrap();
+
+        // start activity
+        let file = vfs::VFS::open(child.name(), vfs::OpenFlags::RX | vfs::OpenFlags::NEW_SESS)
+            .map_err(|e| VerboseError::new(e.code(), format!("Unable to open {}", child.name())))?;
+        let mut mapper = mapper::ChildMapper::new(aspace, act.tile_desc().has_virtmem());
+
+        let run = act
+            .exec_file(&mut mapper, file.into_generic(), child.arguments())
+            .map_err(|e| {
+                VerboseError::new(e.code(), format!("Unable to execute {}", child.name()))
+            })?;
+
+        child.set_running(Box::new(run));
+
+        Ok(())
     }
 
-    // pass subsystem info to child, if it's a subsystem
-    let id = child.id();
-    if let Some(sub) = child.subsys() {
-        sub.finalize_async(id, &mut act)?;
+    fn configure_tile(
+        &mut self,
+        _res: &mut Resources,
+        tile: &tiles::TileUsage,
+        _domain: &config::Domain,
+    ) -> Result<(), VerboseError> {
+        let fs_mod = MemGate::new_bind_bootmod("fs")?;
+        let fs_mod_size = fs_mod.region()?.1 as usize;
+        // don't overwrite PMP EPs here, but use the next free one. this is required in case we
+        // share our tile with this child and therefore need to add a PMP EP for ourself. Since our
+        // parent has already set PMP EPs, we don't want to overwrite them.
+        tile.add_mem_region(fs_mod, fs_mod_size, true, false)
+            .map_err(|e| {
+                VerboseError::new(e.code(), "Unable to add PMP EP for FS image".to_string())
+            })
     }
-
-    // mount file systems for childs
-    for m in child.cfg().mounts() {
-        let path = get_mount(m.fs())?;
-        act.add_mount(m.path(), &path);
-    }
-
-    // init address space (give it activity and mgate selector)
-    let mut hdl = PGHDL.borrow_mut();
-    let aspace = hdl.sessions.get_mut(sid).unwrap();
-    aspace.init(Some(child.id()), Some(act.sel())).unwrap();
-
-    // start activity
-    let file = vfs::VFS::open(child.name(), vfs::OpenFlags::RX | vfs::OpenFlags::NEW_SESS)
-        .map_err(|e| VerboseError::new(e.code(), format!("Unable to open {}", child.name())))?;
-    let mut mapper = mapper::ChildMapper::new(aspace, act.tile_desc().has_virtmem());
-    child
-        .start(act, &mut mapper, file.into_generic())
-        .map_err(|e| VerboseError::new(e.code(), "Unable to start Activity".to_string()))
 }
 
-fn handle_request(op: PagerOp, is: &mut GateIStream<'_>) -> Result<(), Error> {
+fn handle_request(
+    childs: &mut ChildManager,
+    op: PagerOp,
+    is: &mut GateIStream<'_>,
+) -> Result<(), Error> {
     let mut hdl = PGHDL.borrow_mut();
     let sid = is.label() as SessId;
 
@@ -260,7 +282,7 @@ fn handle_request(op: PagerOp, is: &mut GateIStream<'_>) -> Result<(), Error> {
         let aspace = hdl.sessions.get_mut(sid).unwrap();
 
         match op {
-            PagerOp::PAGEFAULT => aspace.pagefault(is),
+            PagerOp::PAGEFAULT => aspace.pagefault(childs, is),
             PagerOp::MAP_ANON => aspace.map_anon(is),
             PagerOp::UNMAP => aspace.unmap(is),
             PagerOp::CLOSE => aspace
@@ -271,43 +293,51 @@ fn handle_request(op: PagerOp, is: &mut GateIStream<'_>) -> Result<(), Error> {
     }
 }
 
-fn workloop(serv: &Server) {
-    requests::workloop(
-        || {
+#[allow(clippy::vec_box)]
+struct WorkloopArgs<'c, 'd, 'r, 'q, 's> {
+    childs: &'c mut ChildManager,
+    delayed: &'d mut Vec<Box<OwnChild>>,
+    res: &'r mut Resources,
+    reqs: &'q requests::Requests,
+    serv: &'s mut Server,
+}
+
+fn workloop(args: &mut WorkloopArgs<'_, '_, '_, '_, '_>) {
+    let WorkloopArgs {
+        childs,
+        delayed,
+        res,
+        reqs,
+        serv,
+    } = args;
+
+    reqs.run_loop(
+        childs,
+        delayed,
+        res,
+        |childs, _res| {
             serv.handle_ctrl_chan(PGHDL.borrow_mut().deref_mut()).ok();
 
-            REQHDL.get().handle(handle_request).ok();
+            REQHDL
+                .get()
+                .handle(|op, is| handle_request(childs, op, is))
+                .ok();
         },
-        start_child_async,
+        &mut PagedChildStarter {},
     )
     .expect("Unable to run workloop");
 }
 
-#[derive(Clone, Debug)]
-pub struct PagerSettings {
-    fs_size: usize,
-}
-
-fn parse_args() -> Result<PagerSettings, String> {
-    Ok(PagerSettings {
-        fs_size: env::args()
-            .last()
-            .ok_or("File system size missing")?
-            .parse::<usize>()
-            .map_err(|_| String::from("Failed to parse FS size"))?,
-    })
-}
-
 #[no_mangle]
-pub fn main() -> i32 {
-    SETTINGS.set(parse_args().unwrap_or_else(|e| {
-        println!("Invalid arguments: {}", e);
-        m3::exit(1);
-    }));
-
-    let subsys = subsys::Subsystem::new().expect("Unable to read subsystem info");
+pub fn main() -> Result<(), Error> {
+    let (subsys, mut res) = subsys::Subsystem::new().expect("Unable to read subsystem info");
 
     let args = subsys.parse_args();
+    for sem in &args.sems {
+        res.semaphores_mut()
+            .add_sem(sem.clone())
+            .expect("Unable to add semaphore");
+    }
 
     // mount root FS if we haven't done that yet
     MOUNTS.set(Vec::new());
@@ -323,26 +353,28 @@ pub fn main() -> i32 {
         sel: 0,
         sessions: SessionContainer::new(args.max_clients),
     };
-    let serv = Server::new_private("pager", &mut hdl).expect("Unable to create service");
+    let mut serv = Server::new_private("pager", &mut hdl).expect("Unable to create service");
     hdl.sel = serv.sel();
     PGHDL.set(hdl);
 
     REQHDL.set(
-        RequestHandler::new_with(args.max_clients, DEF_MSG_SIZE)
-            .expect("Unable to create request handler"),
+        RequestHandler::new_with(args.max_clients, 128).expect("Unable to create request handler"),
     );
 
-    let mut req_rgate = RecvGate::new(
+    let req_rgate = RecvGate::new(
         math::next_log2(256 * args.max_clients),
         math::next_log2(256),
     )
     .expect("Unable to create resmng RecvGate");
+    // manually activate the RecvGate here, because it requires quite a lot of EPs and we are
+    // potentially moving (<EPs left> - 16) EPs to a child activity. therefore, we should allocate
+    // all EPs before starting childs.
     req_rgate
         .activate()
         .expect("Unable to activate resmng RecvGate");
-    requests::init(req_rgate);
+    let reqs = requests::Requests::new(req_rgate);
 
-    let mut squeue_rgate = RecvGate::new(
+    let squeue_rgate = RecvGate::new(
         math::next_log2(sendqueue::RBUF_MSG_SIZE * args.max_clients),
         math::next_log2(sendqueue::RBUF_MSG_SIZE),
     )
@@ -352,18 +384,31 @@ pub fn main() -> i32 {
         .expect("Unable to activate sendqueue RecvGate");
     sendqueue::init(squeue_rgate);
 
-    thread::init();
-    for _ in 0..args.max_clients {
-        thread::add_thread(workloop as *const () as usize, &serv as *const _ as usize);
-    }
+    let mut childs = childs::ChildManager::default();
 
-    subsys
-        .start(start_child_async)
+    let mut delayed = subsys
+        .start(&mut childs, &reqs, &mut res, &mut PagedChildStarter {})
         .expect("Unable to start subsystem");
 
-    childs::borrow_mut().start_waiting(1);
+    let mut wargs = WorkloopArgs {
+        childs: &mut childs,
+        delayed: &mut delayed,
+        res: &mut res,
+        reqs: &reqs,
+        serv: &mut serv,
+    };
 
-    workloop(&serv);
+    thread::init();
+    for _ in 0..args.max_clients {
+        thread::add_thread(
+            workloop as *const () as usize,
+            &mut wargs as *mut _ as usize,
+        );
+    }
 
-    0
+    wargs.childs.start_waiting(1);
+
+    workloop(&mut wargs);
+
+    Ok(())
 }

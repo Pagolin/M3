@@ -1,5 +1,8 @@
 <config>
-    <kernel args="kernel -b net0-net1" />
+    <mods>
+        <mod name="fs" file="bench.img" />
+    </mods>
+    <kernel args="kernel" />
     <dom>
         <app args="root sem=net-udp sem=net-tcp">
             <dom>

@@ -13,17 +13,17 @@
  * General Public License version 2 for more details.
  */
 
-use base::cell::{LazyStaticCell, LazyStaticRefCell, StaticCell};
+use base::cell::LazyStaticRefCell;
 use base::cfg;
-use base::envdata;
+use base::env;
 use base::errors::Error;
 use base::goff;
 use base::kif::{PageFlags, TileDesc, PTE};
-use base::math;
 use base::mem::GlobAddr;
 use base::tcu;
+use base::util::math;
 
-use paging::{self, AddrSpace, Allocator, Phys};
+use paging::{self, AddrSpace, Allocator, ArchPaging, Paging, Phys};
 
 extern "C" {
     static _text_start: u8;
@@ -34,16 +34,20 @@ extern "C" {
     static _bss_end: u8;
 }
 
-struct PTAllocator {}
+struct PTAllocator {
+    pts_mapped: bool,
+    off: Phys,
+}
 
 impl Allocator for PTAllocator {
     fn allocate_pt(&mut self) -> Result<Phys, Error> {
-        PT_POS.set(PT_POS.get() + cfg::PAGE_SIZE as goff);
-        Ok(PT_POS.get() - cfg::PAGE_SIZE as goff)
+        let res = self.off;
+        self.off += cfg::PAGE_SIZE as Phys;
+        Ok(res)
     }
 
     fn translate_pt(&self, phys: Phys) -> usize {
-        if BOOTSTRAP.get() {
+        if !self.pts_mapped {
             phys as usize
         }
         else {
@@ -56,20 +60,20 @@ impl Allocator for PTAllocator {
     }
 }
 
-static BOOTSTRAP: StaticCell<bool> = StaticCell::new(true);
-static PT_POS: LazyStaticCell<goff> = LazyStaticCell::default();
 static ASPACE: LazyStaticRefCell<AddrSpace<PTAllocator>> = LazyStaticRefCell::default();
 
 pub fn init() {
-    assert!(TileDesc::new_from(envdata::get().tile_desc).has_virtmem());
+    assert!(TileDesc::new_from(env::boot().tile_desc).has_virtmem());
 
     let (mem_tile, mem_base, mem_size, _) = tcu::TCU::unpack_mem_ep(0).unwrap();
 
     let base = GlobAddr::new_with(mem_tile, mem_base);
     let root = base + mem_size / 2 + mem_size / 4;
     let pts_phys = cfg::MEM_OFFSET as goff + mem_size / 2 + mem_size / 4;
-    PT_POS.set(pts_phys + cfg::PAGE_SIZE as goff);
-    let aspace = AddrSpace::new(0, root, PTAllocator {});
+    let aspace = AddrSpace::new(0, root, PTAllocator {
+        pts_mapped: false,
+        off: pts_phys + cfg::PAGE_SIZE as Phys,
+    });
     aspace.init();
     ASPACE.set(aspace);
 
@@ -107,9 +111,10 @@ pub fn init() {
 
     // switch to that address space
     ASPACE.borrow_mut().switch_to();
-    paging::enable_paging();
+    Paging::enable();
 
-    BOOTSTRAP.set(false);
+    // now we can use the mapped-pts area
+    ASPACE.borrow_mut().allocator_mut().pts_mapped = true;
 }
 
 #[allow(unused)]

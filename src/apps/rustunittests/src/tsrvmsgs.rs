@@ -19,11 +19,11 @@ use m3::col::String;
 use m3::com::{GateIStream, RecvGate, SendGate};
 use m3::errors::{Code, Error};
 use m3::kif;
-use m3::math::next_log2;
 use m3::server::{server_loop, CapExchange, Handler, Server, SessId, SessionContainer};
 use m3::session::ServerSession;
 use m3::test::WvTester;
-use m3::tiles::{ActivityArgs, ChildActivity, RunningActivity, Tile};
+use m3::tiles::{ActivityArgs, ChildActivity, OwnActivity, RunningActivity, Tile};
+use m3::util::math::next_log2;
 use m3::{reply_vmsg, wv_assert_eq, wv_assert_err, wv_assert_ok, wv_run_test};
 
 pub fn run(t: &mut dyn WvTester) {
@@ -93,28 +93,26 @@ impl MsgHandler {
         // pretend that we crash after some requests
         self.calls += 1;
         if self.calls == 6 {
-            m3::exit(1);
+            OwnActivity::exit_with(Code::EndOfFile);
         }
         Ok(())
     }
 }
 
-fn server_msgs_main() -> i32 {
+fn server_msgs_main() -> Result<(), Error> {
     let mut hdl = MsgHandler {
         sessions: SessionContainer::new(1),
         calls: 0,
     };
     let s = wv_assert_ok!(Server::new("test", &mut hdl));
 
-    let mut rgate = wv_assert_ok!(RecvGate::new(next_log2(256), next_log2(256)));
-    wv_assert_ok!(rgate.activate());
-    RGATE.set(rgate);
+    RGATE.set(wv_assert_ok!(RecvGate::new(next_log2(256), next_log2(256))));
 
     server_loop(|| {
         s.handle_ctrl_chan(&mut hdl)?;
 
         let rgate = RGATE.borrow();
-        if let Some(msg) = rgate.fetch() {
+        if let Ok(msg) = rgate.fetch() {
             let mut is = GateIStream::new(msg, &rgate);
             if let Err(e) = hdl.handle_msg(&mut is) {
                 is.reply_error(e.code()).ok();
@@ -124,13 +122,13 @@ fn server_msgs_main() -> i32 {
     })
     .ok();
 
-    0
+    Ok(())
 }
 
 fn testmsgs(t: &mut dyn WvTester) {
     use m3::send_recv;
 
-    let server_tile = wv_assert_ok!(Tile::get("clone|own"));
+    let server_tile = wv_assert_ok!(Tile::get("compat|own"));
     let serv = wv_assert_ok!(ChildActivity::new_with(
         server_tile,
         ActivityArgs::new("server")
@@ -166,5 +164,5 @@ fn testmsgs(t: &mut dyn WvTester) {
         );
     }
 
-    wv_assert_eq!(t, sact.wait(), Ok(1));
+    wv_assert_eq!(t, sact.wait(), Ok(Code::EndOfFile));
 }

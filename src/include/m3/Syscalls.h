@@ -18,12 +18,12 @@
 
 #pragma once
 
-#include <base/Env.h>
 #include <base/GlobAddr.h>
 #include <base/KIF.h>
 #include <base/Quota.h>
 #include <base/TileDesc.h>
 
+#include <m3/Env.h>
 #include <m3/com/GateStream.h>
 #include <m3/com/SendGate.h>
 
@@ -74,10 +74,10 @@ public:
     static epid_t alloc_ep(capsel_t dst, capsel_t act, epid_t ep, uint replies);
 
     static void activate(capsel_t ep, capsel_t gate, capsel_t rbuf_mem, goff_t rbuf_off);
-    static void set_pmp(capsel_t tile, capsel_t mgate, epid_t epid);
+    static void set_pmp(capsel_t tile, capsel_t mgate, epid_t epid, bool overwrite);
     static void activity_ctrl(capsel_t act, KIF::Syscall::ActivityOp op, xfer_t arg);
-    static std::pair<int, capsel_t> activity_wait(const capsel_t *acts, size_t count,
-                                                  event_t event);
+    static std::pair<Errors::Code, capsel_t> activity_wait(const capsel_t *acts, size_t count,
+                                                           event_t event);
     static void derive_mem(capsel_t act, capsel_t dst, capsel_t src, goff_t offset, size_t size,
                            int perms);
     static void derive_kmem(capsel_t kmem, capsel_t dst, size_t quota);
@@ -87,6 +87,7 @@ public:
     static void derive_srv(capsel_t srv, const KIF::CapRngDesc &dst, uint sessions, event_t event);
     static void get_sess(capsel_t srv, capsel_t act, capsel_t dst, word_t sid);
     static std::pair<GlobAddr, size_t> mgate_region(capsel_t mgate);
+    static std::pair<uint, uint> rgate_buffer(capsel_t rgate);
     static Quota<size_t> kmem_quota(capsel_t kmem);
     static std::tuple<Quota<uint>, Quota<uint64_t>, Quota<size_t>> tile_quota(capsel_t tile);
     static void tile_set_quota(capsel_t tile, uint64_t time, uint64_t pts);

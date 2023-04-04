@@ -44,7 +44,7 @@ NOINLINE void child_to_parent() {
         MemGate mgate = MemGate::create_global(0x1'0000, MemGate::RW);
         IndirectPipe pipe(pipes, mgate, 0x1'0000);
 
-        Reference<Tile> tile = Tile::get("clone|own");
+        Reference<Tile> tile = Tile::get("compat|own");
         ChildActivity act(tile, "writer");
         act.add_file(STDOUT_FD, pipe.writer().fd());
 
@@ -69,9 +69,9 @@ NOINLINE void child_to_parent() {
         act.wait();
     });
 
-    WVPERF("c->p: " << (DATA_SIZE / 1024) << " KiB transfer with " << (BUF_SIZE / 1024)
-                    << " KiB buf",
-           res);
+    auto name = OStringStream();
+    format_to(name, "c->p: {} KiB transfer with {} KiB buf"_cf, DATA_SIZE / 1024, BUF_SIZE / 1024);
+    WVPERF(name.str(), res);
 }
 
 NOINLINE void parent_to_child() {
@@ -82,7 +82,7 @@ NOINLINE void parent_to_child() {
         MemGate mgate = MemGate::create_global(0x1'0000, MemGate::RW);
         IndirectPipe pipe(pipes, mgate, 0x1'0000);
 
-        Reference<Tile> tile(Tile::get("clone|own"));
+        Reference<Tile> tile(Tile::get("compat|own"));
         ChildActivity act(tile, "writer");
         act.add_file(STDIN_FD, pipe.reader().fd());
 
@@ -107,9 +107,9 @@ NOINLINE void parent_to_child() {
         act.wait();
     });
 
-    WVPERF("p->c: " << (DATA_SIZE / 1024) << " KiB transfer with " << (BUF_SIZE / 1024)
-                    << " KiB buf",
-           res);
+    auto name = OStringStream();
+    format_to(name, "p->c: {} KiB transfer with {} KiB buf"_cf, DATA_SIZE / 1024, BUF_SIZE / 1024);
+    WVPERF(name.str(), res);
 }
 
 void bpipe() {

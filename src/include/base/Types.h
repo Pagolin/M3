@@ -36,7 +36,7 @@ typedef long ssize_t;
 #endif
 
 typedef unsigned long word_t;
-#if defined(__kachel__)
+#if defined(__hw22__)
 typedef uint32_t label_t;
 #else
 typedef uint64_t label_t;
@@ -46,7 +46,6 @@ typedef int fd_t;
 typedef uint64_t cycles_t;
 
 typedef ulong epid_t;
-typedef ulong tileid_t;
 typedef uint16_t actid_t;
 typedef uint64_t goff_t;
 typedef uint64_t event_t;

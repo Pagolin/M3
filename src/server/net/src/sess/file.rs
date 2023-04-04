@@ -31,12 +31,9 @@ use crate::DriverInterface;
 
 pub struct FileSession {
     sel: Selector,
-    #[allow(dead_code)]
-    srv_sel: Selector,
-    #[allow(dead_code)]
-    sgate: SendGate,
-    #[allow(dead_code)]
-    socket: Rc<RefCell<Socket>>,
+    _srv_sel: Selector,
+    _sgate: SendGate,
+    _socket: Rc<RefCell<Socket>>,
     memory: Option<MemGate>,
 
     mode: u32,
@@ -87,10 +84,10 @@ impl FileSession {
         );
         let s = Rc::new(RefCell::new(FileSession {
             sel: sels,
-            srv_sel,
+            _srv_sel: srv_sel,
 
-            sgate: new_sgate,
-            socket,
+            _sgate: new_sgate,
+            _socket: socket,
             memory: None,
             mode,
             rbuf: VarRingBuf::new(rmemsize),
@@ -181,7 +178,7 @@ impl FileSession {
         // TODO from C++: Socket is closed
         if false {
             log!(crate::LOG_SESS, "recv: EOF");
-            reply_vmsg!(is, Code::None as u32, 0usize, 0usize)?;
+            reply_vmsg!(is, Code::Success, 0usize, 0usize)?;
             return Ok(());
         }
 
@@ -201,7 +198,7 @@ impl FileSession {
         if let Some((pos, amount)) = self.rbuf.get_read_pos(amount) {
             self.last_amount = amount;
             log!(crate::LOG_SESS, "recv: {}@{}", amount, pos);
-            reply_vmsg!(is, Code::None as u32, pos, amount)
+            reply_vmsg!(is, Code::Success, pos, amount)
         }
         else {
             // Could not allocate
@@ -219,7 +216,7 @@ impl FileSession {
         // TODO from C++: socket is closed
         if false {
             log!(crate::LOG_SESS, "send: EOF");
-            reply_vmsg!(is, Code::None as u32, 0usize, 0usize)?;
+            reply_vmsg!(is, Code::Success, 0usize, 0usize)?;
             return Ok(());
         }
 
@@ -239,7 +236,7 @@ impl FileSession {
         if let Some(pos) = self.rbuf.get_write_pos(amount) {
             self.last_amount = amount;
             log!(crate::LOG_SESS, "send: {}@{}", amount, pos);
-            reply_vmsg!(is, Code::None as u32, self.rbuf.size() + pos, amount)
+            reply_vmsg!(is, Code::Success, self.rbuf.size() + pos, amount)
         }
         else {
             // Could not allocate
@@ -261,7 +258,7 @@ impl FileSession {
         }
 
         let res = match self.inner_commit(amount) {
-            Ok(_) => Code::None,
+            Ok(_) => Code::Success,
             Err(e) => e.code(),
         };
 
@@ -335,11 +332,7 @@ impl FileSession {
             is.rgate()
         );
         let msg = is.take_msg();
-        let cloned_gate = RecvGate::new_bind(
-            is.rgate().sel(),
-            m3::math::next_log2(is.rgate().size()),
-            m3::math::next_log2(is.size()),
-        );
+        let cloned_gate = RecvGate::new_bind(is.rgate().sel());
 
         self.pending = Some(msg);
         self.pending_gate = Some(cloned_gate);
@@ -356,7 +349,7 @@ impl FileSession {
             let mut late_is = GateIStream::new(pending_msg, &pending_gate);
 
             // TODO encode correctly?
-            reply_vmsg!(late_is, Code::None as u32, 0usize, 0usize)
+            reply_vmsg!(late_is, Code::Success, 0usize, 0usize)
         }
         else {
             log!(crate::LOG_SESS, "Closing: Could not send EOF");
@@ -416,7 +409,7 @@ impl FileSession {
             {
                 let mut late_is = GateIStream::new(pending_msg, &pending_gate);
 
-                reply_vmsg!(late_is, Code::None as u32, pos, amount)
+                reply_vmsg!(late_is, Code::Success, pos, amount)
             }
             else {
                 log!(
@@ -445,7 +438,7 @@ impl FileSession {
                 (self.pending.take(), self.pending_gate.take())
             {
                 let mut late_is = GateIStream::new(pending_msg, &pending_gate);
-                reply_vmsg!(late_is, Code::None as u32, pos, amount)
+                reply_vmsg!(late_is, Code::Success, pos, amount)
             }
             else {
                 log!(

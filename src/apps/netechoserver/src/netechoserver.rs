@@ -17,14 +17,16 @@
 #![no_std]
 
 use m3::com::Semaphore;
+use m3::errors::Error;
 use m3::net::{
-    DGramSocket, DgramSocketArgs, State, StreamSocket, StreamSocketArgs, TcpSocket, UdpSocket,
+    DGramSocket, DgramSocketArgs, Socket, State, StreamSocket, StreamSocketArgs, TcpSocket,
+    UdpSocket,
 };
 use m3::session::NetworkManager;
 use m3::vfs::{FileEvent, FileWaiter};
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let nm = NetworkManager::new("net").expect("connecting to net failed");
 
     let mut udp_socket = UdpSocket::new(

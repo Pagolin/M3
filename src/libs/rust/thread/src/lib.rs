@@ -20,6 +20,7 @@
 
 use base::boxed::Box;
 use base::cell::{LazyStaticRefCell, Ref, StaticCell};
+use base::cfg;
 use base::col::{BoxList, Vec};
 use base::impl_boxitem;
 use base::libc;
@@ -36,7 +37,6 @@ pub const LOG_DEF: bool = false;
 pub type Event = u64;
 
 const MAX_MSG_SIZE: usize = 1024;
-const STACK_SIZE: usize = 16 * 1024;
 
 #[cfg(target_arch = "x86_64")]
 #[derive(Default)]
@@ -166,7 +166,7 @@ impl Thread {
             next: None,
             id: alloc_id(),
             regs: Regs::default(),
-            stack: vec![0usize; STACK_SIZE / mem::size_of::<usize>()],
+            stack: vec![0usize; cfg::STACK_SIZE / mem::size_of::<usize>()],
             event: 0,
             has_msg: false,
             // safety: will only be safe to access if `has_msg` is true
@@ -193,7 +193,7 @@ impl Thread {
             // safety: has_msg is true and we trust the TCU
             unsafe {
                 let head = self.msg.as_ptr() as *const tcu::Header;
-                let slice = [head as usize, (*head).length as usize];
+                let slice = [head as usize, (*head).length()];
                 Some(transmute(slice))
             }
         }
@@ -218,7 +218,7 @@ impl Thread {
     }
 
     fn set_msg(&mut self, msg: &'static tcu::Message) {
-        let size = msg.header.length as usize + mem::size_of::<tcu::Header>();
+        let size = msg.header.length() + mem::size_of::<tcu::Header>();
         self.has_msg = true;
         // safety: we trust the TCU
         unsafe {

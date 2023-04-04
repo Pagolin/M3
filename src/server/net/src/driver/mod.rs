@@ -15,15 +15,11 @@
  */
 
 /// Conditional include of the driver
-#[cfg(target_vendor = "host")]
-#[path = "host/mod.rs"]
-mod inner;
-
 #[cfg(target_vendor = "gem5")]
 #[path = "gem5/mod.rs"]
 mod inner;
 
-#[cfg(target_vendor = "hw")]
+#[cfg(any(target_vendor = "hw", target_vendor = "hw22"))]
 #[path = "hw/mod.rs"]
 mod inner;
 
@@ -37,10 +33,8 @@ pub enum DriverInterface<'a> {
     Lo(Interface<'a, smoltcp::phy::Loopback>),
     #[cfg(target_vendor = "gem5")]
     Eth(Interface<'a, E1000Device>),
-    #[cfg(target_vendor = "hw")]
+    #[cfg(any(target_vendor = "hw", target_vendor = "hw22"))]
     Eth(Interface<'a, AXIEthDevice>),
-    #[cfg(target_vendor = "host")]
-    Eth(Interface<'a, DevFifo>),
 }
 
 impl<'a> DriverInterface<'a> {

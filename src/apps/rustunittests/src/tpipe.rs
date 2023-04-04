@@ -41,13 +41,13 @@ fn child_to_parent(t: &mut dyn WvTester) {
     let pipe_mem = wv_assert_ok!(MemGate::new(0x10000, kif::Perm::RW));
     let pipe = wv_assert_ok!(IndirectPipe::new(&pipeserv, &pipe_mem, 0x10000));
 
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut act = wv_assert_ok!(ChildActivity::new_with(tile, ActivityArgs::new("writer")));
     act.add_file(io::STDOUT_FILENO, pipe.writer().unwrap().fd());
 
     let act = wv_assert_ok!(act.run(|| {
         println!("This is a test!");
-        0
+        Ok(())
     }));
 
     pipe.close_writer();
@@ -58,7 +58,7 @@ fn child_to_parent(t: &mut dyn WvTester) {
 
     pipe.close_reader();
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }
 
 fn parent_to_child(t: &mut dyn WvTester) {
@@ -66,7 +66,7 @@ fn parent_to_child(t: &mut dyn WvTester) {
     let pipe_mem = wv_assert_ok!(MemGate::new(0x10000, kif::Perm::RW));
     let pipe = wv_assert_ok!(IndirectPipe::new(&pipeserv, &pipe_mem, 0x10000));
 
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut act = wv_assert_ok!(ChildActivity::new_with(tile, ActivityArgs::new("reader")));
     act.add_file(io::STDIN_FILENO, pipe.reader().unwrap().fd());
 
@@ -74,7 +74,7 @@ fn parent_to_child(t: &mut dyn WvTester) {
         let mut t = DefaultWvTester::default();
         let s = wv_assert_ok!(io::stdin().read_to_string());
         wv_assert_eq!(t, s, "This is a test!\n");
-        0
+        Ok(())
     }));
 
     pipe.close_reader();
@@ -84,7 +84,7 @@ fn parent_to_child(t: &mut dyn WvTester) {
 
     pipe.close_writer();
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }
 
 fn child_to_child(t: &mut dyn WvTester) {
@@ -92,8 +92,8 @@ fn child_to_child(t: &mut dyn WvTester) {
     let pipe_mem = wv_assert_ok!(MemGate::new(0x10000, kif::Perm::RW));
     let pipe = wv_assert_ok!(IndirectPipe::new(&pipeserv, &pipe_mem, 0x10000));
 
-    let tile1 = wv_assert_ok!(Tile::get("clone|own"));
-    let tile2 = wv_assert_ok!(Tile::get("clone|own"));
+    let tile1 = wv_assert_ok!(Tile::get("compat|own"));
+    let tile2 = wv_assert_ok!(Tile::get("compat|own"));
     let mut writer = wv_assert_ok!(ChildActivity::new_with(tile1, ActivityArgs::new("writer")));
     let mut reader = wv_assert_ok!(ChildActivity::new_with(tile2, ActivityArgs::new("reader")));
     writer.add_file(io::STDOUT_FILENO, pipe.writer().unwrap().fd());
@@ -101,21 +101,21 @@ fn child_to_child(t: &mut dyn WvTester) {
 
     let wr_act = wv_assert_ok!(writer.run(|| {
         println!("This is a test!");
-        0
+        Ok(())
     }));
 
     let rd_act = wv_assert_ok!(reader.run(|| {
         let mut t = DefaultWvTester::default();
         let s = wv_assert_ok!(io::stdin().read_to_string());
         wv_assert_eq!(t, s, "This is a test!\n");
-        0
+        Ok(())
     }));
 
     pipe.close_reader();
     pipe.close_writer();
 
-    wv_assert_eq!(t, wr_act.wait(), Ok(0));
-    wv_assert_eq!(t, rd_act.wait(), Ok(0));
+    wv_assert_eq!(t, wr_act.wait(), Ok(Code::Success));
+    wv_assert_eq!(t, rd_act.wait(), Ok(Code::Success));
 }
 
 fn exec_child_to_child(t: &mut dyn WvTester) {
@@ -123,8 +123,8 @@ fn exec_child_to_child(t: &mut dyn WvTester) {
     let pipe_mem = wv_assert_ok!(MemGate::new(0x10000, kif::Perm::RW));
     let pipe = wv_assert_ok!(IndirectPipe::new(&pipeserv, &pipe_mem, 0x10000));
 
-    let tile1 = wv_assert_ok!(Tile::get("clone|own"));
-    let tile2 = wv_assert_ok!(Tile::get("clone|own"));
+    let tile1 = wv_assert_ok!(Tile::get("compat|own"));
+    let tile2 = wv_assert_ok!(Tile::get("compat|own"));
     let mut writer = wv_assert_ok!(ChildActivity::new_with(tile1, ActivityArgs::new("writer")));
     let mut reader = wv_assert_ok!(ChildActivity::new_with(tile2, ActivityArgs::new("reader")));
     writer.add_file(io::STDOUT_FILENO, pipe.writer().unwrap().fd());
@@ -136,14 +136,14 @@ fn exec_child_to_child(t: &mut dyn WvTester) {
         let mut t = DefaultWvTester::default();
         let s = wv_assert_ok!(io::stdin().read_to_string());
         wv_assert_eq!(t, s, "Hello World\n");
-        0
+        Ok(())
     }));
 
     pipe.close_reader();
     pipe.close_writer();
 
-    wv_assert_eq!(t, wr_act.wait(), Ok(0));
-    wv_assert_eq!(t, rd_act.wait(), Ok(0));
+    wv_assert_eq!(t, wr_act.wait(), Ok(Code::Success));
+    wv_assert_eq!(t, rd_act.wait(), Ok(Code::Success));
 }
 
 fn writer_quit(t: &mut dyn WvTester) {
@@ -151,14 +151,14 @@ fn writer_quit(t: &mut dyn WvTester) {
     let pipe_mem = wv_assert_ok!(MemGate::new(0x10000, kif::Perm::RW));
     let pipe = wv_assert_ok!(IndirectPipe::new(&pipeserv, &pipe_mem, 0x10000));
 
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut act = wv_assert_ok!(ChildActivity::new_with(tile, ActivityArgs::new("writer")));
     act.add_file(io::STDOUT_FILENO, pipe.writer().unwrap().fd());
 
     let act = wv_assert_ok!(act.run(|| {
         println!("This is a test!");
         println!("This is a test!");
-        0
+        Ok(())
     }));
 
     pipe.close_writer();
@@ -177,7 +177,7 @@ fn writer_quit(t: &mut dyn WvTester) {
 
     pipe.close_reader();
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }
 
 fn reader_quit(t: &mut dyn WvTester) {
@@ -185,7 +185,7 @@ fn reader_quit(t: &mut dyn WvTester) {
     let pipe_mem = wv_assert_ok!(MemGate::new(0x10000, kif::Perm::RW));
     let pipe = wv_assert_ok!(IndirectPipe::new(&pipeserv, &pipe_mem, 0x10000));
 
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut act = wv_assert_ok!(ChildActivity::new_with(tile, ActivityArgs::new("reader")));
     act.add_file(io::STDIN_FILENO, pipe.reader().unwrap().fd());
 
@@ -194,7 +194,7 @@ fn reader_quit(t: &mut dyn WvTester) {
         let mut s = String::new();
         wv_assert_eq!(t, io::stdin().read_line(&mut s), Ok(15));
         wv_assert_eq!(t, s, "This is a test!");
-        0
+        Ok(())
     }));
 
     pipe.close_reader();
@@ -213,5 +213,5 @@ fn reader_quit(t: &mut dyn WvTester) {
 
     pipe.close_writer();
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }

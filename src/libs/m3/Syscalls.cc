@@ -49,7 +49,7 @@ Errors::Code Syscalls::send_receive_err(const MsgBuf &msg) noexcept {
 
 void Syscalls::send_receive_throw(const MsgBuf &msg) {
     Errors::Code res = send_receive_err(msg);
-    if(res != Errors::NONE) {
+    if(res != Errors::SUCCESS) {
         auto syscall = msg.get<KIF::DefaultRequest>();
         throw SyscallException(res, static_cast<KIF::Syscall::Operation>(syscall.opcode));
     }
@@ -141,7 +141,7 @@ std::pair<epid_t, actid_t> Syscalls::create_activity(capsel_t dst, const std::st
     auto reply = send_receive<KIF::Syscall::CreateActivityReply>(req_buf);
 
     Errors::Code res = static_cast<Errors::Code>(reply.error());
-    if(res != Errors::NONE)
+    if(res != Errors::SUCCESS)
         throw SyscallException(res, KIF::Syscall::CREATE_ACT);
     return std::make_pair(reply->eps_start, reply->id);
 }
@@ -167,7 +167,7 @@ epid_t Syscalls::alloc_ep(capsel_t dst, capsel_t act, epid_t ep, uint replies) {
     auto reply = send_receive<KIF::Syscall::AllocEPReply>(req_buf);
 
     Errors::Code res = static_cast<Errors::Code>(reply.error());
-    if(res != Errors::NONE)
+    if(res != Errors::SUCCESS)
         throw SyscallException(res, KIF::Syscall::ALLOC_EPS);
     return reply->ep;
 }
@@ -183,13 +183,14 @@ void Syscalls::activate(capsel_t ep, capsel_t gate, capsel_t rbuf_mem, goff_t rb
     send_receive_throw(req_buf);
 }
 
-void Syscalls::set_pmp(capsel_t tile, capsel_t mgate, epid_t epid) {
+void Syscalls::set_pmp(capsel_t tile, capsel_t mgate, epid_t epid, bool overwrite) {
     MsgBuf req_buf;
     auto &req = req_buf.cast<KIF::Syscall::SetPMP>();
     req.opcode = KIF::Syscall::SET_PMP;
     req.tile_sel = tile;
     req.mgate_sel = mgate;
     req.epid = epid;
+    req.overwrite = overwrite;
     send_receive_throw(req_buf);
 }
 
@@ -206,8 +207,8 @@ void Syscalls::activity_ctrl(capsel_t act, KIF::Syscall::ActivityOp op, xfer_t a
         send_receive_throw(req_buf);
 }
 
-std::pair<int, capsel_t> Syscalls::activity_wait(const capsel_t *acts, size_t count,
-                                                 event_t event) {
+std::pair<Errors::Code, capsel_t> Syscalls::activity_wait(const capsel_t *acts, size_t count,
+                                                          event_t event) {
     MsgBuf req_buf;
     auto &req = req_buf.cast<KIF::Syscall::ActivityWait>();
     req.opcode = KIF::Syscall::ACT_WAIT;
@@ -218,15 +219,15 @@ std::pair<int, capsel_t> Syscalls::activity_wait(const capsel_t *acts, size_t co
 
     auto reply = send_receive<KIF::Syscall::ActivityWaitReply>(req_buf);
 
-    int exitcode = -1;
+    Errors::Code exitcode = Errors::UNSPECIFIED;
     capsel_t act = KIF::INV_SEL;
     Errors::Code res = static_cast<Errors::Code>(reply.error());
-    if(res == Errors::NONE && event == 0) {
+    if(res == Errors::SUCCESS && event == 0) {
         act = reply->act_sel;
-        exitcode = reply->exitcode;
+        exitcode = static_cast<Errors::Code>(reply->exitcode);
     }
 
-    if(res != Errors::NONE)
+    if(res != Errors::SUCCESS)
         throw SyscallException(res, KIF::Syscall::ACT_WAIT);
     return std::make_pair(exitcode, act);
 }
@@ -298,9 +299,23 @@ std::pair<GlobAddr, size_t> Syscalls::mgate_region(capsel_t mgate) {
     auto reply = send_receive<KIF::Syscall::MGateRegionReply>(req_buf);
 
     Errors::Code res = static_cast<Errors::Code>(reply.error());
-    if(res != Errors::NONE)
+    if(res != Errors::SUCCESS)
         throw SyscallException(res, KIF::Syscall::MGATE_REGION);
     return std::make_pair(GlobAddr(reply->global), reply->size);
+}
+
+std::pair<uint, uint> Syscalls::rgate_buffer(capsel_t rgate) {
+    MsgBuf req_buf;
+    auto &req = req_buf.cast<KIF::Syscall::RGateBuffer>();
+    req.opcode = KIF::Syscall::RGATE_BUFFER;
+    req.rgate_sel = rgate;
+
+    auto reply = send_receive<KIF::Syscall::RGateBufferReply>(req_buf);
+
+    Errors::Code res = static_cast<Errors::Code>(reply.error());
+    if(res != Errors::SUCCESS)
+        throw SyscallException(res, KIF::Syscall::RGATE_BUFFER);
+    return std::make_pair(reply->order, reply->msg_order);
 }
 
 Quota<size_t> Syscalls::kmem_quota(capsel_t kmem) {
@@ -312,7 +327,7 @@ Quota<size_t> Syscalls::kmem_quota(capsel_t kmem) {
     auto reply = send_receive<KIF::Syscall::KMemQuotaReply>(req_buf);
 
     Errors::Code res = static_cast<Errors::Code>(reply.error());
-    if(res != Errors::NONE)
+    if(res != Errors::SUCCESS)
         throw SyscallException(res, KIF::Syscall::KMEM_QUOTA);
     return Quota<size_t>(reply->id, reply->total, reply->left);
 }
@@ -326,7 +341,7 @@ std::tuple<Quota<uint>, Quota<uint64_t>, Quota<size_t>> Syscalls::tile_quota(cap
     auto reply = send_receive<KIF::Syscall::TileQuotaReply>(req_buf);
 
     Errors::Code res = static_cast<Errors::Code>(reply.error());
-    if(res != Errors::NONE)
+    if(res != Errors::SUCCESS)
         throw SyscallException(res, KIF::Syscall::TILE_QUOTA);
 
     return std::make_tuple(Quota<uint>(reply->eps_id, reply->eps_total, reply->eps_left),
@@ -381,7 +396,7 @@ void Syscalls::exchange_sess(capsel_t act, capsel_t sess, const KIF::CapRngDesc 
     auto reply = send_receive<KIF::Syscall::ExchangeSessReply>(req_buf);
 
     Errors::Code res = static_cast<Errors::Code>(reply.error());
-    if(res != Errors::NONE)
+    if(res != Errors::SUCCESS)
         throw SyscallException(res, static_cast<KIF::Syscall::Operation>(req.opcode));
     if(args)
         memcpy(args, &reply->args, sizeof(*args));

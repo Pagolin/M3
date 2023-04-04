@@ -15,7 +15,7 @@
 
 use base::build_vmsg;
 use base::cell::RefMut;
-use base::col::{BitVec, Vec};
+use base::col::{BitArray, Vec};
 use base::errors::{Code, Error};
 use base::goff;
 use base::kif;
@@ -34,10 +34,9 @@ use crate::tiles::INVAL_ID;
 pub struct TileMux {
     tile: SRc<TileObject>,
     acts: Vec<ActId>,
-    #[cfg(not(target_vendor = "host"))]
     queue: base::boxed::Box<crate::com::SendQueue>,
     pmp: Vec<Rc<EPObject>>,
-    eps: BitVec,
+    eps: BitArray,
 }
 
 impl TileMux {
@@ -59,20 +58,17 @@ impl TileMux {
         let mut tilemux = TileMux {
             tile: tile_obj,
             acts: Vec::new(),
-            #[cfg(not(target_vendor = "host"))]
             queue: crate::com::SendQueue::new(crate::com::QueueId::TileMux(tile), tile),
             pmp,
-            eps: BitVec::new(tcu::AVAIL_EPS as usize),
+            eps: BitArray::new(tcu::AVAIL_EPS as usize),
         };
 
-        #[cfg(not(target_vendor = "host"))]
         tilemux.eps.set(0); // first EP is reserved for TileMux's memory region
 
         for ep in tcu::PMEM_PROT_EPS as EpId..tcu::FIRST_USER_EP {
             tilemux.eps.set(ep as usize);
         }
 
-        #[cfg(not(target_vendor = "host"))]
         if platform::tile_desc(tile).supports_tilemux() {
             tilemux.init();
         }
@@ -93,7 +89,6 @@ impl TileMux {
         self.acts.retain(|id| *id != act);
     }
 
-    #[cfg(not(target_vendor = "host"))]
     fn init(&mut self) {
         use base::cfg;
 
@@ -102,7 +97,7 @@ impl TileMux {
             ktcu::config_send(
                 regs,
                 kif::tilemux::ACT_ID as ActId,
-                self.tile_id() as tcu::Label,
+                self.tile_id().raw() as tcu::Label,
                 platform::kernel_tile(),
                 ktcu::KPEX_EP,
                 cfg::KPEX_RBUF_ORD,
@@ -112,7 +107,7 @@ impl TileMux {
         .unwrap();
 
         // configure receive EP
-        let mut rbuf = platform::rbuf_tilemux(self.tile_id());
+        let mut rbuf = cfg::TILEMUX_RBUF_SPACE as goff;
         ktcu::config_remote_ep(self.tile_id(), tcu::KPEX_REP, |regs| {
             ktcu::config_recv(
                 regs,
@@ -215,6 +210,47 @@ impl TileMux {
         }
     }
 
+    pub fn handle_call_async(tilemux: RefMut<'_, Self>, msg: &tcu::Message) {
+        use base::serialize::M3Deserializer;
+
+        let mut de = M3Deserializer::new(msg.as_words());
+        let op: kif::tilemux::Calls = de.pop().unwrap();
+
+        let res = match op {
+            kif::tilemux::Calls::EXIT => Self::handle_exit_async(tilemux, &mut de),
+            _ => {
+                klog!(ERR, "Unexpected call from TileMux: {}", op);
+                Err(Error::new(Code::InvArgs))
+            },
+        };
+
+        let mut reply = MsgBuf::borrow_def();
+        build_vmsg!(reply, kif::DefaultReply {
+            error: res.err().map(|e| e.code()).unwrap_or(Code::Success)
+        });
+        ktcu::reply(ktcu::KPEX_EP, &reply, msg).unwrap();
+    }
+
+    fn handle_exit_async(
+        tilemux: RefMut<'_, Self>,
+        de: &mut base::serialize::M3Deserializer<'_>,
+    ) -> Result<(), Error> {
+        use crate::tiles::ActivityMng;
+
+        let r: kif::tilemux::Exit = de.pop()?;
+
+        klog!(TMC, "TileMux[{}] received {:?}", tilemux.tile_id(), r);
+
+        let has_act = tilemux.acts.contains(&r.act_id);
+        drop(tilemux);
+
+        if has_act {
+            let act = ActivityMng::activity(r.act_id).unwrap();
+            act.stop_app_async(r.status, true);
+        }
+        Ok(())
+    }
+
     pub fn config_snd_ep(
         &mut self,
         ep: EpId,
@@ -224,7 +260,7 @@ impl TileMux {
         let rgate = obj.rgate();
         assert!(rgate.activated());
 
-        klog!(EPS, "Tile{}:EP{} = {:?}", self.tile_id(), ep, obj);
+        klog!(EPS, "{}:EP{} = {:?}", self.tile_id(), ep, obj);
 
         ktcu::config_remote_ep(self.tile_id(), ep, |regs| {
             let act = self.ep_activity_id(act);
@@ -248,7 +284,7 @@ impl TileMux {
         reply_eps: Option<EpId>,
         obj: &SRc<RGateObject>,
     ) -> Result<(), Error> {
-        klog!(EPS, "Tile{}:EP{} = {:?}", self.tile_id(), ep, obj);
+        klog!(EPS, "{}:EP{} = {:?}", self.tile_id(), ep, obj);
 
         ktcu::config_remote_ep(self.tile_id(), ep, |regs| {
             let act = self.ep_activity_id(act);
@@ -274,10 +310,10 @@ impl TileMux {
         tile_id: TileId,
     ) -> Result<(), Error> {
         if ep < tcu::PMEM_PROT_EPS as EpId {
-            klog!(EPS, "Tile{}:PMPEP{} = {:?}", self.tile_id(), ep, obj);
+            klog!(EPS, "{}:PMPEP{} = {:?}", self.tile_id(), ep, obj);
         }
         else {
-            klog!(EPS, "Tile{}:EP{} = {:?}", self.tile_id(), ep, obj);
+            klog!(EPS, "{}:EP{} = {:?}", self.tile_id(), ep, obj);
         }
 
         ktcu::config_remote_ep(self.tile_id(), ep, |regs| {
@@ -300,21 +336,18 @@ impl TileMux {
         force: bool,
         notify: bool,
     ) -> Result<(), Error> {
-        klog!(EPS, "Tile{}:EP{} = invalid", self.tile_id(), ep);
+        klog!(EPS, "{}:EP{} = invalid", self.tile_id(), ep);
 
         let unread_mask = ktcu::invalidate_ep_remote(self.tile_id(), ep, force)?;
-        if unread_mask != 0 && notify {
-            let mut msg = MsgBuf::borrow_def();
-            build_vmsg!(
-                msg,
-                kif::tilemux::Sidecalls::REM_MSGS,
-                kif::tilemux::RemMsgs {
-                    act_id: act as u64,
-                    unread_mask,
-                }
-            );
+        if unread_mask != 0 && notify && platform::tile_desc(self.tile_id()).supports_tilemux() {
+            let mut buf = MsgBuf::borrow_def();
+            let msg = kif::tilemux::RemMsgs {
+                act_id: act as u64,
+                unread_mask,
+            };
+            build_vmsg!(buf, kif::tilemux::Sidecalls::REM_MSGS, &msg);
 
-            self.send_sidecall::<kif::tilemux::RemMsgs>(Some(act), &msg)
+            self.send_sidecall::<kif::tilemux::RemMsgs>(Some(act), &buf, &msg)
                 .map(|_| ())
         }
         else {
@@ -330,7 +363,7 @@ impl TileMux {
     ) -> Result<(), Error> {
         klog!(
             EPS,
-            "Tile{}:EP{} = invalid reply EPs at Tile{}:EP{}",
+            "{}:EP{} = invalid reply EPs at {}:EP{}",
             self.tile_id(),
             send_ep,
             recv_tile,
@@ -341,59 +374,21 @@ impl TileMux {
     }
 
     pub fn reset_stats(&mut self) -> Result<(), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::RESET_STATS,
-            kif::tilemux::ResetStats {}
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::ResetStats {};
+        build_vmsg!(buf, kif::tilemux::Sidecalls::RESET_STATS, &msg);
 
-        self.send_sidecall::<kif::tilemux::ResetStats>(None, &msg)
+        self.send_sidecall::<kif::tilemux::ResetStats>(None, &buf, &msg)
             .map(|_| ())
     }
-}
 
-#[cfg(not(target_vendor = "host"))]
-impl TileMux {
-    pub fn handle_call_async(tilemux: RefMut<'_, Self>, msg: &tcu::Message) {
-        use base::serialize::M3Deserializer;
+    pub fn shutdown(&mut self) -> Result<(), Error> {
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::Shutdown {};
+        build_vmsg!(buf, kif::tilemux::Sidecalls::SHUTDOWN, &msg);
 
-        let mut de = M3Deserializer::new(msg.as_words());
-        let op: kif::tilemux::Calls = de.pop().unwrap();
-
-        let res = match op {
-            kif::tilemux::Calls::EXIT => Self::handle_exit_async(tilemux, &mut de),
-            _ => {
-                klog!(ERR, "Unexpected call from TileMux: {}", op);
-                Err(Error::new(Code::InvArgs))
-            },
-        };
-
-        let mut reply = MsgBuf::borrow_def();
-        build_vmsg!(reply, kif::DefaultReply {
-            error: res.err().map(|e| e.code()).unwrap_or(Code::None)
-        });
-        ktcu::reply(ktcu::KPEX_EP, &reply, msg).unwrap();
-    }
-
-    fn handle_exit_async(
-        tilemux: RefMut<'_, Self>,
-        de: &mut base::serialize::M3Deserializer<'_>,
-    ) -> Result<(), Error> {
-        use crate::tiles::ActivityMng;
-
-        let r: kif::tilemux::Exit = de.pop()?;
-
-        klog!(TMC, "TileMux[{}] received {:?}", tilemux.tile_id(), r);
-
-        let has_act = tilemux.acts.contains(&r.act_id);
-        drop(tilemux);
-
-        if has_act {
-            let act = ActivityMng::activity(r.act_id).unwrap();
-            act.stop_app_async(r.status, true);
-        }
-        Ok(())
+        self.send_sidecall::<kif::tilemux::Shutdown>(None, &buf, &msg)
+            .map(|_| ())
     }
 
     pub fn activity_init_async(
@@ -403,19 +398,17 @@ impl TileMux {
         pt_quota: quota::Id,
         eps_start: EpId,
     ) -> Result<(), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::ACT_INIT,
-            kif::tilemux::ActInit {
-                act_id: act as u64,
-                time_quota,
-                pt_quota,
-                eps_start,
-            }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::ActInit {
+            act_id: act as u64,
+            time_quota,
+            pt_quota,
+            eps_start,
+        };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::ACT_INIT, &msg);
 
-        Self::send_receive_sidecall_async::<kif::tilemux::ActInit>(tilemux, None, msg).map(|_| ())
+        Self::send_receive_sidecall_async::<kif::tilemux::ActInit>(tilemux, None, buf, &msg)
+            .map(|_| ())
     }
 
     pub fn activity_ctrl_async(
@@ -423,17 +416,14 @@ impl TileMux {
         act: ActId,
         act_op: base::kif::tilemux::ActivityOp,
     ) -> Result<(), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::ACT_CTRL,
-            kif::tilemux::ActivityCtrl {
-                act_id: act as u64,
-                act_op,
-            }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::ActivityCtrl {
+            act_id: act as u64,
+            act_op,
+        };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::ACT_CTRL, &msg);
 
-        Self::send_receive_sidecall_async::<kif::tilemux::ActivityCtrl>(tilemux, None, msg)
+        Self::send_receive_sidecall_async::<kif::tilemux::ActivityCtrl>(tilemux, None, buf, &msg)
             .map(|_| ())
     }
 
@@ -444,19 +434,16 @@ impl TileMux {
         time: Option<u64>,
         pts: Option<usize>,
     ) -> Result<(quota::Id, quota::Id), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::DERIVE_QUOTA,
-            kif::tilemux::DeriveQuota {
-                parent_time,
-                parent_pts,
-                time,
-                pts,
-            }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::DeriveQuota {
+            parent_time,
+            parent_pts,
+            time,
+            pts,
+        };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::DERIVE_QUOTA, &msg);
 
-        Self::send_receive_sidecall_async::<kif::tilemux::DeriveQuota>(tilemux, None, msg)
+        Self::send_receive_sidecall_async::<kif::tilemux::DeriveQuota>(tilemux, None, buf, &msg)
             .map(|r| (r.val1 as quota::Id, r.val2 as quota::Id))
     }
 
@@ -465,28 +452,23 @@ impl TileMux {
         time: quota::Id,
         pts: quota::Id,
     ) -> Result<(quota::Quota<u64>, quota::Quota<usize>), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::GET_QUOTA,
-            kif::tilemux::GetQuota { time, pts }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::GetQuota { time, pts };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::GET_QUOTA, &msg);
 
-        let tile_id = (tilemux.tile.tile() as quota::Id) << 8;
-        Self::send_receive_sidecall_async::<kif::tilemux::GetQuota>(tilemux, None, msg).map(|r| {
-            (
-                quota::Quota::new(
-                    tile_id | time,
-                    (r.val1 >> 32) as u64,
-                    (r.val1 & 0xFFFF_FFFF) as u64,
-                ),
-                quota::Quota::new(
-                    tile_id | pts,
-                    (r.val2 >> 32) as usize,
-                    (r.val2 & 0xFFFF_FFFF) as usize,
-                ),
-            )
-        })
+        let tile_id = (tilemux.tile.tile().raw() as quota::Id) << 8;
+        Self::send_receive_sidecall_async::<kif::tilemux::GetQuota>(tilemux, None, buf, &msg).map(
+            |r| {
+                (
+                    quota::Quota::new(tile_id | time, r.val1 >> 32, r.val1 & 0xFFFF_FFFF),
+                    quota::Quota::new(
+                        tile_id | pts,
+                        (r.val2 >> 32) as usize,
+                        (r.val2 & 0xFFFF_FFFF) as usize,
+                    ),
+                )
+            },
+        )
     }
 
     pub fn set_quota_async(
@@ -495,14 +477,12 @@ impl TileMux {
         time: u64,
         pts: usize,
     ) -> Result<(), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::SET_QUOTA,
-            kif::tilemux::SetQuota { id, time, pts }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::SetQuota { id, time, pts };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::SET_QUOTA, &msg);
 
-        Self::send_receive_sidecall_async::<kif::tilemux::SetQuota>(tilemux, None, msg).map(|_| ())
+        Self::send_receive_sidecall_async::<kif::tilemux::SetQuota>(tilemux, None, buf, &msg)
+            .map(|_| ())
     }
 
     pub fn remove_quotas_async(
@@ -510,14 +490,11 @@ impl TileMux {
         time: Option<quota::Id>,
         pts: Option<quota::Id>,
     ) -> Result<(), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::REMOVE_QUOTAS,
-            kif::tilemux::RemoveQuotas { time, pts }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::RemoveQuotas { time, pts };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::REMOVE_QUOTAS, &msg);
 
-        Self::send_receive_sidecall_async::<kif::tilemux::RemoveQuotas>(tilemux, None, msg)
+        Self::send_receive_sidecall_async::<kif::tilemux::RemoveQuotas>(tilemux, None, buf, &msg)
             .map(|_| ())
     }
 
@@ -529,16 +506,18 @@ impl TileMux {
         pages: usize,
         perm: kif::PageFlags,
     ) -> Result<(), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(msg, kif::tilemux::Sidecalls::MAP, kif::tilemux::Map {
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::Map {
             act_id: act as u64,
             virt,
             global,
             pages,
             perm,
-        });
+        };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::MAP, &msg);
 
-        Self::send_receive_sidecall_async::<kif::tilemux::Map>(tilemux, Some(act), msg).map(|_| ())
+        Self::send_receive_sidecall_async::<kif::tilemux::Map>(tilemux, Some(act), buf, &msg)
+            .map(|_| ())
     }
 
     pub fn unmap_async(
@@ -565,33 +544,27 @@ impl TileMux {
     ) -> Result<GlobAddr, Error> {
         use base::cfg::PAGE_MASK;
 
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::TRANSLATE,
-            kif::tilemux::Translate {
-                act_id: act as u64,
-                virt,
-                perm,
-            }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::Translate {
+            act_id: act as u64,
+            virt,
+            perm,
+        };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::TRANSLATE, msg);
 
-        Self::send_receive_sidecall_async::<kif::tilemux::Translate>(tilemux, Some(act), msg)
+        Self::send_receive_sidecall_async::<kif::tilemux::Translate>(tilemux, Some(act), buf, &msg)
             .map(|reply| GlobAddr::new(reply.val1 & !(PAGE_MASK as goff)))
     }
 
     pub fn notify_invalidate(&mut self, act: ActId, ep: EpId) -> Result<(), Error> {
-        let mut msg = MsgBuf::borrow_def();
-        build_vmsg!(
-            msg,
-            kif::tilemux::Sidecalls::EP_INVAL,
-            kif::tilemux::EpInval {
-                act_id: act as u64,
-                ep,
-            }
-        );
+        let mut buf = MsgBuf::borrow_def();
+        let msg = kif::tilemux::EpInval {
+            act_id: act as u64,
+            ep,
+        };
+        build_vmsg!(buf, kif::tilemux::Sidecalls::EP_INVAL, msg);
 
-        self.send_sidecall::<kif::tilemux::EpInval>(Some(act), &msg)
+        self.send_sidecall::<kif::tilemux::EpInval>(Some(act), &buf, &msg)
             .map(|_| ())
     }
 
@@ -599,6 +572,7 @@ impl TileMux {
         &mut self,
         act: Option<ActId>,
         req: &MsgBuf,
+        msg: &R,
     ) -> Result<thread::Event, Error> {
         use crate::tiles::{ActivityMng, State};
 
@@ -612,12 +586,7 @@ impl TileMux {
             }
         }
 
-        klog!(
-            TMC,
-            "TileMux[{}] sending {:?}",
-            self.tile_id(),
-            req.get::<R>()
-        );
+        klog!(TMC, "TileMux[{}] sending {:?}", self.tile_id(), msg);
 
         self.queue.send(tcu::TMSIDE_REP, 0, req)
     }
@@ -626,10 +595,11 @@ impl TileMux {
         mut tilemux: RefMut<'_, Self>,
         act: Option<ActId>,
         req: base::mem::MsgBufRef<'_>,
+        msg: &R,
     ) -> Result<kif::tilemux::Response, Error> {
         use crate::com::SendQueue;
 
-        let event = tilemux.send_sidecall::<R>(act, &req)?;
+        let event = tilemux.send_sidecall::<R>(act, &req, msg)?;
         drop(req);
         drop(tilemux);
 
@@ -637,103 +607,11 @@ impl TileMux {
 
         let mut de = base::serialize::M3Deserializer::new(reply.as_words());
         let code: Code = de.pop()?;
-        if code == Code::None {
+        if code == Code::Success {
             de.pop()
         }
         else {
             Err(Error::new(code))
         }
-    }
-}
-
-#[cfg(target_vendor = "host")]
-impl TileMux {
-    pub fn update_eps(&mut self) -> Result<(), Error> {
-        ktcu::update_eps(self.tile_id())
-    }
-
-    pub fn activity_init_async(
-        _tilemux: RefMut<'_, Self>,
-        _act: ActId,
-        _time_quota: quota::Id,
-        _pt_quota: quota::Id,
-        _eps_start: EpId,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub fn activity_ctrl_async(
-        _tilemux: RefMut<'_, Self>,
-        _act: ActId,
-        _ctrl: base::kif::tilemux::ActivityOp,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub fn derive_quota_async(
-        _tilemux: RefMut<'_, Self>,
-        _parent_time: quota::Id,
-        _parent_pts: quota::Id,
-        _time: Option<u64>,
-        _pts: Option<usize>,
-    ) -> Result<(quota::Id, quota::Id), Error> {
-        Ok((0, 0))
-    }
-
-    pub fn get_quota_async(
-        _tilemux: RefMut<'_, Self>,
-        _time: quota::Id,
-        _pts: quota::Id,
-    ) -> Result<(quota::Quota<u64>, quota::Quota<usize>), Error> {
-        Ok((quota::Quota::default(), quota::Quota::default()))
-    }
-
-    pub fn set_quota_async(
-        _tilemux: RefMut<'_, Self>,
-        _id: quota::Id,
-        _time: u64,
-        _pts: usize,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub fn remove_quotas_async(
-        _tilemux: RefMut<'_, Self>,
-        _time: Option<quota::Id>,
-        _pts: Option<quota::Id>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub fn map_async(
-        _tilemux: RefMut<'_, Self>,
-        _act: ActId,
-        _virt: goff,
-        _glob: GlobAddr,
-        _pages: usize,
-        _perm: kif::PageFlags,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub fn unmap_async(
-        _tilemux: RefMut<'_, Self>,
-        _act: ActId,
-        _virt: goff,
-        _pages: usize,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub fn notify_invalidate(&mut self, _act: ActId, _ep: EpId) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn send_sidecall<R: core::fmt::Debug>(
-        &mut self,
-        _act: Option<ActId>,
-        _req: &MsgBuf,
-    ) -> Result<thread::Event, Error> {
-        Err(Error::new(Code::NotSup))
     }
 }

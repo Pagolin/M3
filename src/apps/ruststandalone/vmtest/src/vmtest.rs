@@ -23,51 +23,40 @@ mod paging;
 
 use base::cell::StaticCell;
 use base::cfg;
-use base::envdata;
 use base::errors::{Code, Error};
 use base::kif::{PageFlags, Perm};
 use base::libc;
 use base::log;
-use base::math::next_log2;
 use base::mem::{size_of, MsgBuf};
-use base::tcu::{self, TileId, TCU};
+use base::tcu::{self, EpId, TileId, TCU};
 use base::util;
-use base::{read_csr, write_csr};
 
 use core::intrinsics::transmute;
+
+use isr::{ISRArch, StateArch, ISR};
 
 static LOG_DEF: bool = true;
 static LOG_TMCALLS: bool = false;
 
-static OWN_TILE: TileId = 0;
-static MEM_TILE: TileId = 8;
+static OWN_TILE: TileId = TileId::new(0, 0);
+static MEM_TILE: TileId = TileId::new(0, 8);
 
 static OWN_ACT: u16 = 0xFFFF;
 static FOREIGN_MSGS: StaticCell<u64> = StaticCell::new(0);
 
-pub extern "C" fn mmu_pf(state: &mut isr::State) -> *mut libc::c_void {
-    let virt = read_csr!("stval");
+static MEP: EpId = tcu::FIRST_USER_EP;
+static SEP: EpId = tcu::FIRST_USER_EP + 1;
+static REP1: EpId = tcu::FIRST_USER_EP + 2;
+static RPLEP: EpId = tcu::FIRST_USER_EP + 3;
+static REP2: EpId = tcu::FIRST_USER_EP + 4;
 
-    let perm = match isr::Vector::from(state.cause & 0x1F) {
-        isr::Vector::INSTR_PAGEFAULT => PageFlags::R | PageFlags::X,
-        isr::Vector::LOAD_PAGEFAULT => PageFlags::R,
-        isr::Vector::STORE_PAGEFAULT => PageFlags::R | PageFlags::W,
-        _ => unreachable!(),
-    };
+pub extern "C" fn mmu_pf(state: &mut isr::State) -> *mut libc::c_void {
+    let (virt, perm) = ISR::get_pf_info(state);
 
     panic!(
         "Pagefault for address={:#x}, perm={:?} with {:?}",
         virt, perm, state
     );
-}
-
-pub extern "C" fn sw_irq(state: &mut isr::State) -> *mut libc::c_void {
-    log!(crate::LOG_DEF, "Got software IRQ @ {:#x}", state.epc);
-
-    // disable software IRQ
-    write_csr!("sip", read_csr!("sip") & !0x2);
-
-    state as *mut _ as *mut libc::c_void
 }
 
 fn read_write(wr_addr: usize, rd_addr: usize, size: usize) {
@@ -91,13 +80,13 @@ fn read_write(wr_addr: usize, rd_addr: usize, size: usize) {
     }
 
     // configure mem EP
-    helper::config_local_ep(1, |regs| {
-        TCU::config_mem(regs, OWN_ACT, MEM_TILE, 0x1000, size, Perm::RW);
+    helper::config_local_ep(MEP, |regs| {
+        TCU::config_mem(regs, OWN_ACT, MEM_TILE, 0x4000_0000, size, Perm::RW);
     });
 
     // test write + read
-    TCU::write(1, wr_slice.as_ptr(), size, 0).unwrap();
-    TCU::read(1, rd_slice.as_mut_ptr(), size, 0).unwrap();
+    TCU::write(MEP, wr_slice.as_ptr(), size, 0).unwrap();
+    TCU::read(MEP, rd_slice.as_mut_ptr(), size, 0).unwrap();
 
     assert_eq!(rd_slice, wr_slice);
 }
@@ -163,16 +152,23 @@ fn send_recv(send_addr: usize, size: usize) {
     let (rbuf2_virt, rbuf2_phys) = helper::virt_to_phys(RBUF2.as_ptr() as usize);
 
     // create EPs
-    let max_msg_ord = next_log2(16 + size * 8);
+    let max_msg_ord = util::math::next_log2(size_of::<tcu::Header>() + size * 8);
     assert!(RBUF1.len() * size_of::<u64>() >= 1 << max_msg_ord);
-    helper::config_local_ep(1, |regs| {
-        TCU::config_recv(regs, OWN_ACT, rbuf1_phys, max_msg_ord, max_msg_ord, Some(2));
+    helper::config_local_ep(REP1, |regs| {
+        TCU::config_recv(
+            regs,
+            OWN_ACT,
+            rbuf1_phys,
+            max_msg_ord,
+            max_msg_ord,
+            Some(RPLEP),
+        );
     });
-    helper::config_local_ep(3, |regs| {
+    helper::config_local_ep(REP2, |regs| {
         TCU::config_recv(regs, OWN_ACT, rbuf2_phys, max_msg_ord, max_msg_ord, None);
     });
-    helper::config_local_ep(4, |regs| {
-        TCU::config_send(regs, OWN_ACT, 0x1234, OWN_TILE, 1, max_msg_ord, 1);
+    helper::config_local_ep(SEP, |regs| {
+        TCU::config_send(regs, OWN_ACT, 0x1234, OWN_TILE, REP1, max_msg_ord, 1);
     });
 
     let msg_buf: &mut MsgBuf = unsafe { transmute(send_addr) };
@@ -186,38 +182,36 @@ fn send_recv(send_addr: usize, size: usize) {
     };
 
     // send message
-    TCU::send(4, msg_buf, 0x1111, 3).unwrap();
+    TCU::send(SEP, msg_buf, 0x1111, REP2).unwrap();
 
     {
         // fetch message
         let rmsg = loop {
-            if let Some(m) = helper::fetch_msg(1, rbuf1_virt) {
+            if let Some(m) = helper::fetch_msg(REP1, rbuf1_virt) {
                 break m;
             }
         };
-        assert_eq!({ rmsg.header.label }, 0x1234);
-        let recv_slice =
-            unsafe { util::slice_for(rmsg.data.as_ptr(), rmsg.header.length as usize) };
+        assert_eq!(rmsg.header.label(), 0x1234);
+        let recv_slice = unsafe { util::slice_for(rmsg.data.as_ptr(), rmsg.header.length()) };
         assert_eq!(msg_buf.bytes(), recv_slice);
 
         // send reply
-        TCU::reply(1, msg_buf, tcu::TCU::msg_to_offset(rbuf1_virt, rmsg)).unwrap();
+        TCU::reply(REP1, msg_buf, tcu::TCU::msg_to_offset(rbuf1_virt, rmsg)).unwrap();
     }
 
     {
         // fetch reply
         let rmsg = loop {
-            if let Some(m) = helper::fetch_msg(3, rbuf2_virt) {
+            if let Some(m) = helper::fetch_msg(REP2, rbuf2_virt) {
                 break m;
             }
         };
-        assert_eq!({ rmsg.header.label }, 0x1111);
-        let recv_slice =
-            unsafe { util::slice_for(rmsg.data.as_ptr(), rmsg.header.length as usize) };
+        assert_eq!(rmsg.header.label(), 0x1111);
+        let recv_slice = unsafe { util::slice_for(rmsg.data.as_ptr(), rmsg.header.length()) };
         assert_eq!(msg_buf.bytes(), recv_slice);
 
         // ack reply
-        tcu::TCU::ack_msg(3, tcu::TCU::msg_to_offset(rbuf2_virt, rmsg)).unwrap();
+        tcu::TCU::ack_msg(REP2, tcu::TCU::msg_to_offset(rbuf2_virt, rmsg)).unwrap();
     }
 }
 
@@ -239,15 +233,15 @@ fn test_msgs(area_begin: usize, _area_size: usize) {
             bytes: [0u8; cfg::PAGE_SIZE + 16],
         };
 
-        helper::config_local_ep(1, |regs| {
+        helper::config_local_ep(REP1, |regs| {
             TCU::config_recv(regs, OWN_ACT, rbuf1_phys, 6, 6, None);
         });
-        helper::config_local_ep(2, |regs| {
-            TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, 1, 6, 1);
+        helper::config_local_ep(SEP, |regs| {
+            TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, REP1, 6, 1);
         });
         let buf_addr = unsafe { (buf.bytes.as_ptr() as *const u8).add(cfg::PAGE_SIZE - 16) };
         assert_eq!(
-            TCU::send_aligned(2, buf_addr, 32, 0x1111, tcu::NO_REPLIES),
+            TCU::send_aligned(SEP, buf_addr, 32, 0x1111, tcu::NO_REPLIES),
             Err(Error::new(Code::PageBoundary))
         );
     }
@@ -259,19 +253,19 @@ fn test_msgs(area_begin: usize, _area_size: usize) {
             bytes: [0u8; cfg::PAGE_SIZE + 16],
         };
 
-        helper::config_local_ep(1, |regs| {
-            TCU::config_recv(regs, OWN_ACT, rbuf1_phys, 6, 6, Some(2));
+        helper::config_local_ep(REP1, |regs| {
+            TCU::config_recv(regs, OWN_ACT, rbuf1_phys, 6, 6, Some(RPLEP));
             // make the message occupied
             regs[2] = 0 << 32 | 1;
         });
-        helper::config_local_ep(2, |regs| {
-            TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, 1, 6, 1);
+        helper::config_local_ep(RPLEP, |regs| {
+            TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, REP1, 6, 1);
             // make it a reply EP
             regs[0] |= 1 << 53;
         });
         let buf_addr = unsafe { (buf.bytes.as_ptr() as *const u8).add(cfg::PAGE_SIZE - 16) };
         assert_eq!(
-            TCU::reply_aligned(1, buf_addr, 32, 0),
+            TCU::reply_aligned(REP1, buf_addr, 32, 0),
             Err(Error::new(Code::PageBoundary))
         );
     }
@@ -292,15 +286,15 @@ fn test_msgs(area_begin: usize, _area_size: usize) {
 }
 
 pub extern "C" fn tcu_irq(state: &mut isr::State) -> *mut libc::c_void {
-    log!(crate::LOG_DEF, "Got TCU IRQ @ {:#x}", state.epc);
+    log!(crate::LOG_DEF, "Got TCU IRQ @ {:#x}", state.instr_pointer());
 
-    isr::get_irq();
+    ISR::fetch_irq();
 
     // core request from TCU?
     let req = tcu::TCU::get_core_req().unwrap();
     log!(crate::LOG_DEF, "Got {:x?}", req);
-    assert_eq!(req.act, 0xDEAD);
-    assert_eq!(req.ep, 1);
+    assert_eq!(req.activity(), 0xDEAD);
+    assert_eq!(req.ep(), REP1);
 
     FOREIGN_MSGS.set(FOREIGN_MSGS.get() + 1);
 
@@ -315,16 +309,16 @@ fn test_foreign_msg() {
     log!(crate::LOG_DEF, "SEND to REP of foreign Activity");
 
     // create EPs
-    helper::config_local_ep(1, |regs| {
+    helper::config_local_ep(REP1, |regs| {
         TCU::config_recv(regs, 0xDEAD, rbuf1_phys, 6, 6, None);
     });
-    helper::config_local_ep(2, |regs| {
-        TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, 1, 6, 1);
+    helper::config_local_ep(SEP, |regs| {
+        TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, REP1, 6, 1);
     });
 
     // send message
     let buf = MsgBuf::new();
-    assert_eq!(TCU::send(2, &buf, 0x1111, tcu::NO_REPLIES), Ok(()));
+    assert_eq!(TCU::send(SEP, &buf, 0x1111, tcu::NO_REPLIES), Ok(()));
 
     // wait for core request
     while FOREIGN_MSGS.get() == 0 {}
@@ -338,11 +332,11 @@ fn test_foreign_msg() {
     assert_eq!(TCU::get_cur_activity(), (1 << 16) | 0xDEAD);
 
     // fetch message with foreign activity
-    let msg = helper::fetch_msg(1, rbuf1_virt).unwrap();
-    assert_eq!({ msg.header.label }, 0x5678);
+    let msg = helper::fetch_msg(REP1, rbuf1_virt).unwrap();
+    assert_eq!(msg.header.label(), 0x5678);
     // message is fetched
     assert_eq!(TCU::get_cur_activity(), 0xDEAD);
-    tcu::TCU::ack_msg(1, tcu::TCU::msg_to_offset(rbuf1_virt, msg)).unwrap();
+    tcu::TCU::ack_msg(REP1, tcu::TCU::msg_to_offset(rbuf1_virt, msg)).unwrap();
 
     // no unread messages anymore
     let foreign = TCU::xchg_activity(old).unwrap();
@@ -357,11 +351,11 @@ fn test_own_msg() {
     log!(crate::LOG_DEF, "SEND to REP of own Activity");
 
     // create EPs
-    helper::config_local_ep(1, |regs| {
+    helper::config_local_ep(REP1, |regs| {
         TCU::config_recv(regs, OWN_ACT, rbuf1_phys, 6, 6, None);
     });
-    helper::config_local_ep(2, |regs| {
-        TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, 1, 6, 1);
+    helper::config_local_ep(SEP, |regs| {
+        TCU::config_send(regs, OWN_ACT, 0x5678, OWN_TILE, REP1, 6, 1);
     });
 
     // no message yet
@@ -369,41 +363,133 @@ fn test_own_msg() {
 
     // send message
     let buf = MsgBuf::new();
-    assert_eq!(TCU::send(2, &buf, 0x1111, tcu::NO_REPLIES), Ok(()));
+    assert_eq!(TCU::send(SEP, &buf, 0x1111, tcu::NO_REPLIES), Ok(()));
 
     // wait until it arrived
-    while !TCU::has_msgs(1) {}
+    while !TCU::has_msgs(REP1) {}
     // now we have a message
     assert_eq!(TCU::get_cur_activity(), (1 << 16) | OWN_ACT as u64);
 
     // fetch message
-    let msg = helper::fetch_msg(1, rbuf1_virt).unwrap();
-    assert_eq!({ msg.header.label }, 0x5678);
+    let msg = helper::fetch_msg(REP1, rbuf1_virt).unwrap();
+    assert_eq!(msg.header.label(), 0x5678);
     // message is fetched
     assert_eq!(TCU::get_cur_activity(), OWN_ACT as u64);
-    tcu::TCU::ack_msg(1, tcu::TCU::msg_to_offset(rbuf1_virt, msg)).unwrap();
+    tcu::TCU::ack_msg(REP1, tcu::TCU::msg_to_offset(rbuf1_virt, msg)).unwrap();
 
     // no foreign message core requests here
     assert_eq!(FOREIGN_MSGS.get(), 0);
 }
 
+fn test_tlb() {
+    const TLB_SIZE: usize = 32;
+    const ASID: u16 = 1;
+
+    {
+        log!(crate::LOG_DEF, "Testing non-fixed TLB entries");
+
+        TCU::invalidate_tlb();
+
+        // fill with lots of entries (beyond capacity)
+        let mut virt = 0x2000_0000;
+        let mut phys = 0x1000_0000;
+        for _ in 0..TLB_SIZE * 2 {
+            TCU::insert_tlb(ASID, virt, phys, PageFlags::RW).unwrap();
+            virt += cfg::PAGE_SIZE;
+            phys += cfg::PAGE_SIZE as u64;
+        }
+
+        // this entry should be found (no error)
+        TCU::invalidate_page(ASID, virt - cfg::PAGE_SIZE).unwrap();
+        // this should not be found
+        assert_eq!(
+            TCU::invalidate_page(ASID, virt - cfg::PAGE_SIZE),
+            Err(Error::new(Code::TLBMiss)),
+        );
+    }
+
+    {
+        log!(crate::LOG_DEF, "Testing fixed TLB entries");
+
+        TCU::invalidate_tlb();
+
+        // fill with lots of fixed entries
+        let mut virt = 0x2000_0000;
+        let mut phys = 0x1000_0000;
+        for _ in 0..TLB_SIZE {
+            TCU::insert_tlb(ASID, virt, phys, PageFlags::RW | PageFlags::FIXED).unwrap();
+            virt += cfg::PAGE_SIZE;
+            phys += cfg::PAGE_SIZE as u64;
+        }
+
+        // now the TLB is full and we should get an error
+        assert_eq!(
+            TCU::insert_tlb(ASID, virt, phys, PageFlags::RW | PageFlags::FIXED),
+            Err(Error::new(Code::TLBFull)),
+        );
+        assert_eq!(
+            TCU::insert_tlb(ASID, virt, phys, PageFlags::RW),
+            Err(Error::new(Code::TLBFull))
+        );
+        // but the same address can still be inserted
+        TCU::insert_tlb(ASID, 0x2000_0000, phys, PageFlags::R | PageFlags::FIXED).unwrap();
+
+        // remove all fixed entries
+        let virt = 0x2000_0000;
+        for i in 0..TLB_SIZE {
+            TCU::invalidate_page(ASID, virt + cfg::PAGE_SIZE * i).unwrap();
+        }
+    }
+
+    {
+        log!(crate::LOG_DEF, "Testing removal of TLB entries");
+
+        TCU::invalidate_tlb();
+
+        // insert entries with different flags
+        let virt = 0x2000_0000;
+        let phys = 0x1000_0000;
+        let pgsz = cfg::PAGE_SIZE;
+        TCU::insert_tlb(ASID, virt, phys, PageFlags::R).unwrap();
+        TCU::insert_tlb(ASID, virt + pgsz * 1, phys, PageFlags::W).unwrap();
+        TCU::insert_tlb(ASID, virt + pgsz * 2, phys, PageFlags::RW).unwrap();
+        TCU::insert_tlb(ASID, virt + pgsz * 3, phys, PageFlags::R | PageFlags::FIXED).unwrap();
+        TCU::insert_tlb(ASID, virt + pgsz * 4, phys, PageFlags::W | PageFlags::FIXED).unwrap();
+        TCU::insert_tlb(
+            ASID,
+            virt + pgsz * 5,
+            phys,
+            PageFlags::RW | PageFlags::FIXED,
+        )
+        .unwrap();
+
+        // remove all these entries explicitly
+        for i in 0..=5 {
+            TCU::invalidate_page(ASID, virt + pgsz * i).unwrap();
+        }
+
+        // now the TLB should be empty again, so that we can fill it with fixed entries
+        for i in 0..TLB_SIZE {
+            TCU::insert_tlb(ASID, virt + pgsz * i, phys, PageFlags::R | PageFlags::FIXED).unwrap();
+            // overwrite existing entry
+            TCU::insert_tlb(ASID, virt + pgsz * i, phys, PageFlags::R | PageFlags::FIXED).unwrap();
+        }
+
+        // remove all fixed entries
+        for i in 0..TLB_SIZE {
+            TCU::invalidate_page(ASID, virt + pgsz * i).unwrap();
+        }
+    }
+
+    TCU::invalidate_tlb();
+}
+
 #[no_mangle]
 pub extern "C" fn env_run() {
-    isr::reg(isr::Vector::INSTR_PAGEFAULT.val, mmu_pf);
-    isr::reg(isr::Vector::LOAD_PAGEFAULT.val, mmu_pf);
-    isr::reg(isr::Vector::STORE_PAGEFAULT.val, mmu_pf);
-    isr::reg(isr::Vector::SUPER_SW_IRQ.val, sw_irq);
-    if envdata::get().platform == envdata::Platform::HW.val {
-        isr::reg(isr::Vector::MACH_EXT_IRQ.val, tcu_irq);
-    }
-    else {
-        isr::reg(isr::Vector::SUPER_EXT_IRQ.val, tcu_irq);
-    }
+    ISR::reg_page_faults(mmu_pf);
+    ISR::reg_core_reqs(tcu_irq);
 
     helper::init("vmtest");
-
-    log!(crate::LOG_DEF, "Triggering software IRQ...");
-    write_csr!("sip", 0x2);
 
     let virt = cfg::ENV_START;
     let pte = paging::translate(virt, PageFlags::R);
@@ -423,6 +509,7 @@ pub extern "C" fn env_run() {
     test_msgs(area_begin, area_size);
     test_foreign_msg();
     test_own_msg();
+    test_tlb();
 
     log!(crate::LOG_DEF, "Shutting down");
     helper::exit(0);

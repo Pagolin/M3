@@ -24,7 +24,7 @@ use m3::tcu;
 
 use crate::childs::Id;
 use crate::events;
-use crate::services;
+use crate::resources::Resources;
 
 pub const RBUF_MSG_SIZE: usize = 1 << 6;
 pub const RBUF_SIZE: usize = RBUF_MSG_SIZE * DEF_MAX_CLIENTS;
@@ -44,7 +44,6 @@ impl MsgSender<thread::Event> for GateSender {
         log!(crate::LOG_SQUEUE, "{}:squeue: sending msg", self.sid);
 
         // we need the conversion, because the size of label is target dependent
-        #[allow(clippy::useless_conversion)]
         self.sgate
             .send_with_rlabel(msg, &RGATE.borrow(), tcu::Label::from(self.sid))
             .map(|_| {
@@ -59,10 +58,10 @@ pub fn init(rgate: RecvGate) {
     RGATE.set(rgate);
 }
 
-pub fn check_replies() {
+pub fn check_replies(res: &mut Resources) {
     let rgate = RGATE.borrow();
-    if let Some(msg) = rgate.fetch() {
-        if let Ok(mut serv) = services::get_mut_by_id(msg.header.label as Id) {
+    if let Ok(msg) = rgate.fetch() {
+        if let Ok(serv) = res.services_mut().get_mut_by_id(msg.header.label() as Id) {
             serv.queue().received_reply(&rgate, msg);
         }
         else {

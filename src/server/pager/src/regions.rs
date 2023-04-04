@@ -22,7 +22,7 @@ use m3::cell::RefCell;
 use m3::cfg;
 use m3::col::Vec;
 use m3::com::MemGate;
-use m3::errors::Error;
+use m3::errors::{Code, Error};
 use m3::goff;
 use m3::kif::{CapRngDesc, CapType, Perm, INVALID_SEL};
 use m3::log;
@@ -124,7 +124,11 @@ impl Region {
         self.flags.contains(RegionFlags::COW)
     }
 
-    pub fn handle_cow(&mut self, ds_perms: Perm) -> Result<(), Error> {
+    pub fn handle_cow(
+        &mut self,
+        childs: &mut childs::ChildManager,
+        ds_perms: Perm,
+    ) -> Result<(), Error> {
         self.flags.remove(RegionFlags::COW);
 
         // writable memory needs to be copied
@@ -150,8 +154,9 @@ impl Region {
                 };
 
                 // allocate new memory for our copy
-                let mut childs = childs::borrow_mut();
-                let child = childs.child_by_id_mut(self.child).unwrap();
+                let child = childs
+                    .child_by_id_mut(self.child)
+                    .ok_or_else(|| Error::new(Code::ActivityGone))?;
                 let mut ngate = child.alloc_local(self.size, Perm::RWX)?;
 
                 log!(

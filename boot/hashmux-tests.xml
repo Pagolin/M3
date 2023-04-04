@@ -1,11 +1,15 @@
 <config>
-    <kernel args="kernel -f $fs.path" />
+    <env>M3_GEM5_CFG=config/default.py</env>
+    <mods>
+        <mod name="fs" file="default.img" />
+    </mods>
+    <kernel args="kernel" />
     <dom>
-        <app args="root -s">
+        <app args="root">
             <dom>
-                <app args="m3fs mem $fs.size" daemon="1">
+                <app args="m3fs mem" daemon="1">
                     <serv name="m3fs" />
-                    <physmem addr="0" size="$fs.size" />
+                    <mod name="fs" />
                 </app>
             </dom>
             <dom>
@@ -13,15 +17,15 @@
                     <serv name="pipes" />
                 </app>
             </dom>
-            <dom tile="imem+kecacc|core">
+            <dom tile="core+kecacc">
                 <app args="hashmux" daemon="1">
                     <serv name="hash"/>
                 </app>
             </dom>
             <dom>
-                <app args="pager $fs.size">
+                <app args="pager">
                     <sess name="m3fs" />
-                    <physmem addr="0" size="$fs.size" perm="r" />
+                    <mod name="fs" perm="r" />
                     <tiles type="core" count="1" />
                     <dom>
                         <app args="/bin/hashmuxtests">

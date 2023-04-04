@@ -27,23 +27,22 @@ mod bpipe;
 mod bregfile;
 mod bstream;
 mod bsyscall;
-#[cfg(not(target_vendor = "host"))]
 mod btilemux;
 mod btreap;
 mod btreemap;
 
+use m3::errors::Error;
 use m3::test::{DefaultWvTester, WvTester};
 use m3::{println, wv_run_suite};
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let mut tester = DefaultWvTester::default();
     wv_run_suite!(tester, bboxlist::run);
     wv_run_suite!(tester, bdlist::run);
     wv_run_suite!(tester, bmemmap::run);
     wv_run_suite!(tester, bmgate::run);
     wv_run_suite!(tester, bipc::run);
-    #[cfg(not(target_vendor = "host"))]
     wv_run_suite!(tester, btilemux::run);
     wv_run_suite!(tester, bpipe::run);
     wv_run_suite!(tester, bregfile::run);
@@ -52,5 +51,5 @@ pub fn main() -> i32 {
     wv_run_suite!(tester, btreap::run);
     wv_run_suite!(tester, btreemap::run);
     println!("{}", tester);
-    0
+    Ok(())
 }

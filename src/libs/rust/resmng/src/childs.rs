@@ -17,7 +17,7 @@ use bitflags::bitflags;
 use core::fmt;
 use m3::boxed::Box;
 use m3::cap::Selector;
-use m3::cell::{Cell, RefCell, RefMut, StaticRefCell};
+use m3::cell::{Cell, RefCell};
 use m3::col::{String, ToString, Treap, Vec};
 use m3::com::{MemGate, RecvGate, SGateArgs, SendGate};
 use m3::env;
@@ -26,27 +26,26 @@ use m3::format;
 use m3::goff;
 use m3::kif::{self, CapRngDesc, CapType, Perm};
 use m3::log;
-use m3::math;
 use m3::mem::MsgBuf;
 use m3::println;
 use m3::quota::{Id as QuotaId, Quota};
 use m3::rc::Rc;
 use m3::serialize::M3Deserializer;
-use m3::session::{ResMngActInfo, ResMngActInfoResult};
+use m3::session::resmng;
 use m3::syscalls;
 use m3::tcu;
-use m3::tiles::{
-    Activity, ChildActivity, KMem, Mapper, RunningActivity, RunningProgramActivity, TileQuota,
-};
-use m3::vfs::{File, FileRef};
+use m3::tiles::{Activity, KMem, RunningActivity, TileQuota};
+use m3::util::math;
 
 use crate::config::AppConfig;
-use crate::gates;
-use crate::memory::{self, Allocation, MemPool};
-use crate::sems;
-use crate::services::{self, Session};
+use crate::requests::Requests;
+use crate::resources::{
+    memory::{Allocation, MemPool},
+    services::Session,
+    tiles::TileUsage,
+    Resources,
+};
 use crate::subsys::SubsystemBuilder;
-use crate::tiles;
 use crate::{events, subsys};
 
 pub type Id = u32;
@@ -72,7 +71,7 @@ impl ChildMem {
         &self.pool
     }
 
-    pub(crate) fn quota(&self) -> goff {
+    pub fn quota(&self) -> goff {
         self.quota.get()
     }
 
@@ -97,24 +96,56 @@ impl fmt::Debug for ChildMem {
 }
 
 #[derive(Default)]
-pub struct Resources {
+pub struct ChildResources {
     childs: Vec<(Id, Selector)>,
     services: Vec<(Id, Selector)>,
     sessions: Vec<(usize, Session)>,
     mem: Vec<(Option<Selector>, Allocation)>,
-    tiles: Vec<(tiles::TileUsage, usize, Selector)>,
+    mods: Vec<MemGate>,
+    tiles: Vec<(TileUsage, usize, Selector)>,
     sgates: Vec<SendGate>,
+}
+
+impl ChildResources {
+    pub fn childs(&self) -> &[(Id, Selector)] {
+        &self.childs
+    }
+
+    pub fn services(&self) -> &[(Id, Selector)] {
+        &self.services
+    }
+
+    pub fn sessions(&self) -> &[(usize, Session)] {
+        &self.sessions
+    }
+
+    pub fn memories(&self) -> &[(Option<Selector>, Allocation)] {
+        &self.mem
+    }
+
+    pub fn mods(&self) -> &[MemGate] {
+        &self.mods
+    }
+
+    pub fn tiles(&self) -> &[(TileUsage, usize, Selector)] {
+        &self.tiles
+    }
+
+    pub fn send_gates(&self) -> &[SendGate] {
+        &self.sgates
+    }
 }
 
 pub trait Child {
     fn id(&self) -> Id;
     fn layer(&self) -> u32;
     fn name(&self) -> &String;
+    fn arguments(&self) -> &[String];
     fn daemon(&self) -> bool;
     fn foreign(&self) -> bool;
 
-    fn our_tile(&self) -> Rc<tiles::TileUsage>;
-    fn child_tile(&self) -> Option<Rc<tiles::TileUsage>>;
+    fn our_tile(&self) -> &TileUsage;
+    fn child_tile(&self) -> Option<&TileUsage>;
     fn activity_sel(&self) -> Selector;
     fn activity_id(&self) -> tcu::ActId;
     fn resmng_sgate_sel(&self) -> Selector;
@@ -122,8 +153,8 @@ pub trait Child {
     fn subsys(&mut self) -> Option<&mut SubsystemBuilder>;
     fn mem(&self) -> &Rc<ChildMem>;
     fn cfg(&self) -> Rc<AppConfig>;
-    fn res(&self) -> &Resources;
-    fn res_mut(&mut self) -> &mut Resources;
+    fn res(&self) -> &ChildResources;
+    fn res_mut(&mut self) -> &mut ChildResources;
     fn kmem(&self) -> Option<Rc<KMem>>;
 
     fn delegate(&self, src: Selector, dst: Selector) -> Result<(), Error> {
@@ -143,6 +174,7 @@ pub trait Child {
 
     fn reg_service(
         &mut self,
+        res: &mut Resources,
         srv_sel: Selector,
         sgate_sel: Selector,
         name: String,
@@ -168,7 +200,7 @@ pub trait Child {
 
         let our_srv = self.obtain(srv_sel)?;
         let our_sgate = self.obtain(sgate_sel)?;
-        let id = services::add_service(
+        let id = res.services_mut().add_service(
             self.id(),
             our_srv,
             our_sgate,
@@ -183,7 +215,7 @@ pub trait Child {
         Ok(())
     }
 
-    fn unreg_service(&mut self, sel: Selector) -> Result<(), Error> {
+    fn unreg_service(&mut self, res: &mut Resources, sel: Selector) -> Result<(), Error> {
         log!(crate::LOG_SERV, "{}: unreg_serv(sel={})", self.name(), sel);
 
         let services = &mut self.res_mut().services;
@@ -192,10 +224,81 @@ pub trait Child {
             .position(|t| t.1 == sel)
             .ok_or_else(|| Error::new(Code::InvArgs))
             .map(|idx| services.remove(idx).0)?;
-        let serv = services::remove_service(sid);
+        let serv = res.services_mut().remove_service(sid);
 
         self.cfg().unreg_service(serv.name());
         Ok(())
+    }
+
+    fn open_session_async(
+        &mut self,
+        res: &mut Resources,
+        id: Id,
+        dst_sel: Selector,
+        name: &str,
+    ) -> Result<(), Error> {
+        let (sname, sarg) = {
+            log!(
+                crate::LOG_SERV,
+                "{}: open_sess(dst_sel={}, name={})",
+                self.name(),
+                dst_sel,
+                name
+            );
+
+            let cfg = self.cfg();
+            let (_idx, sdesc) = cfg
+                .get_session(name)
+                .ok_or_else(|| Error::new(Code::InvArgs))?;
+            if sdesc.is_used() {
+                return Err(Error::new(Code::Exists));
+            }
+            (sdesc.name().global().clone(), sdesc.arg().clone())
+        };
+
+        let serv = res.services_mut().get_mut_by_name(&sname)?;
+        let serv_sel = serv.sel();
+        let sess = Session::new_async(id, dst_sel, serv, &sarg)?;
+
+        // get child and session desc again
+        let cfg = self.cfg();
+        let (idx, sdesc) = cfg
+            .get_session(name)
+            .ok_or_else(|| Error::new(Code::InvArgs))?;
+
+        // check again if it's still unused, because of the async call above
+        if sdesc.is_used() {
+            return Err(Error::new(Code::Exists));
+        }
+
+        syscalls::get_sess(serv_sel, self.activity_sel(), dst_sel, sess.ident())?;
+
+        sdesc.mark_used();
+        self.res_mut().sessions.push((idx, sess));
+
+        Ok(())
+    }
+
+    fn close_session_async(
+        &mut self,
+        res: &mut Resources,
+        id: Id,
+        sel: Selector,
+    ) -> Result<(), Error> {
+        log!(crate::LOG_SERV, "{}: close_sess(sel={})", self.name(), sel);
+
+        let (cfg_idx, sess) = {
+            let sessions = &mut self.res_mut().sessions;
+            sessions
+                .iter()
+                .position(|(_, s)| s.sel() == sel)
+                .ok_or_else(|| Error::new(Code::InvArgs))
+                .map(|res_idx| sessions.remove(res_idx))
+        }?;
+
+        self.cfg().close_session(cfg_idx);
+
+        sess.close_async(res, id)
     }
 
     fn alloc_local(&mut self, size: goff, perm: Perm) -> Result<MemGate, Error> {
@@ -237,31 +340,6 @@ pub trait Child {
         let mem_sel = self.mem().pool.borrow().mem_cap(alloc.slice_id());
         self.add_child_mem(alloc, mem_sel, dst_sel, perm)
     }
-    fn alloc_mem_at(
-        &mut self,
-        dst_sel: Selector,
-        offset: goff,
-        size: goff,
-        perm: Perm,
-    ) -> Result<(), Error> {
-        log!(
-            crate::LOG_MEM,
-            "{}: allocate_at(dst_sel={}, size={:#x}, offset={:#x}, perm={:?})",
-            self.name(),
-            dst_sel,
-            size,
-            offset,
-            perm
-        );
-
-        let alloc = self
-            .mem()
-            .pool
-            .borrow_mut()
-            .allocate_at(offset, size, perm)?;
-        let mem_sel = self.mem().pool.borrow().mem_cap(alloc.slice_id());
-        self.add_child_mem(alloc, mem_sel, dst_sel, perm)
-    }
     fn add_child_mem(
         &mut self,
         alloc: Allocation,
@@ -287,9 +365,7 @@ pub trait Child {
     }
     fn add_mem(&mut self, alloc: Allocation, dst_sel: Option<Selector>) {
         self.res_mut().mem.push((dst_sel, alloc));
-        if !self.mem().pool.borrow().slices()[alloc.slice_id()].in_reserved_mem() {
-            self.mem().alloc_mem(alloc.size());
-        }
+        self.mem().alloc_mem(alloc.size());
         log!(
             crate::LOG_MEM,
             "{}: added {:?} (quota left: {})",
@@ -328,12 +404,15 @@ pub trait Child {
             self.mem().quota.get()
         );
         self.mem().pool.borrow_mut().free(alloc);
-        if !self.mem().pool.borrow().slices()[alloc.slice_id()].in_reserved_mem() {
-            self.mem().free_mem(alloc.size());
-        }
+        self.mem().free_mem(alloc.size());
     }
 
-    fn use_rgate(&mut self, name: &str, sel: Selector) -> Result<(u32, u32), Error> {
+    fn use_rgate(
+        &mut self,
+        res: &Resources,
+        name: &str,
+        sel: Selector,
+    ) -> Result<(u32, u32), Error> {
         log!(
             crate::LOG_GATE,
             "{}: use_rgate(name={}, sel={})",
@@ -347,15 +426,14 @@ pub trait Child {
             .get_rgate(name)
             .ok_or_else(|| Error::new(Code::InvArgs))?;
 
-        let gates = gates::get();
-        let rgate = gates.get(rdesc.name().global()).unwrap();
+        let rgate = res.gates().get(rdesc.name().global()).unwrap();
         self.delegate(rgate.sel(), sel)?;
         Ok((
-            math::next_log2(rgate.size()),
-            math::next_log2(rgate.max_msg_size()),
+            math::next_log2(rgate.size()?),
+            math::next_log2(rgate.max_msg_size()?),
         ))
     }
-    fn use_sgate(&mut self, name: &str, sel: Selector) -> Result<(), Error> {
+    fn use_sgate(&mut self, res: &Resources, name: &str, sel: Selector) -> Result<(), Error> {
         log!(
             crate::LOG_GATE,
             "{}: use_sgate(name={}, sel={})",
@@ -372,8 +450,7 @@ pub trait Child {
             return Err(Error::new(Code::Exists));
         }
 
-        let gates = gates::get();
-        let rgate = gates.get(sdesc.name().global()).unwrap();
+        let rgate = res.gates().get(sdesc.name().global()).unwrap();
 
         let sgate = SendGate::new_with(
             SGateArgs::new(rgate)
@@ -386,7 +463,7 @@ pub trait Child {
         self.res_mut().sgates.push(sgate);
         Ok(())
     }
-    fn use_sem(&mut self, name: &str, sel: Selector) -> Result<(), Error> {
+    fn use_sem(&mut self, res: &Resources, name: &str, sel: Selector) -> Result<(), Error> {
         log!(
             crate::LOG_SEM,
             "{}: use_sem(name={}, sel={})",
@@ -398,11 +475,34 @@ pub trait Child {
         let cfg = self.cfg();
         let sdesc = cfg.get_sem(name).ok_or_else(|| Error::new(Code::InvArgs))?;
 
-        let sems = sems::get();
-        let sem = sems
+        let sem = res
+            .semaphores()
             .get(sdesc.name().global())
             .ok_or_else(|| Error::new(Code::NotFound))?;
         self.delegate(sem.sel(), sel)
+    }
+    fn use_mod(&mut self, res: &Resources, name: &str, sel: Selector) -> Result<(), Error> {
+        log!(
+            crate::LOG_MEM,
+            "{}: use_mod(name={}, sel={})",
+            self.name(),
+            name,
+            sel,
+        );
+
+        let cfg = self.cfg();
+        let mdesc = cfg.get_mod(name).ok_or_else(|| Error::new(Code::InvArgs))?;
+        let bmod = res
+            .mods()
+            .find(mdesc.name().global())
+            .ok_or_else(|| Error::new(Code::NotFound))?;
+
+        let mgate = bmod
+            .memory()
+            .derive(0, bmod.size() as usize, mdesc.perm())?;
+        let our_sel = mgate.sel();
+        self.res_mut().mods.push(mgate);
+        self.delegate(our_sel, sel)
     }
 
     fn get_serial(&mut self, sel: Selector) -> Result<(), Error> {
@@ -424,36 +524,42 @@ pub trait Child {
 
     fn alloc_tile(
         &mut self,
+        res: &Resources,
         sel: Selector,
         desc: kif::TileDesc,
+        inherit_pmp: bool,
     ) -> Result<(tcu::TileId, kif::TileDesc), Error> {
         log!(
             crate::LOG_TILES,
-            "{}: alloc_tile(sel={}, desc={:?})",
+            "{}: alloc_tile(sel={}, desc={:?}, inherit_pmp={})",
             self.name(),
             sel,
-            desc
+            desc,
+            inherit_pmp
         );
 
         let cfg = self.cfg();
         let idx = cfg.get_pe_idx(desc)?;
-        let tile_usage = tiles::get().find_and_alloc(desc)?;
+        let tile_usage = res.tiles().find(desc)?;
 
-        // give this tile access to the same memory regions the child's tile has access to
-        // TODO later we could allow childs to customize that
-        tile_usage.inherit_mem_regions(&self.our_tile())?;
+        if inherit_pmp {
+            // give this tile access to the same memory regions the child's tile has access to
+            // TODO later we could allow childs to customize that
+            tile_usage.inherit_mem_regions(self.our_tile())?;
+        }
 
         self.delegate(tile_usage.tile_obj().sel(), sel)?;
 
         let tile_id = tile_usage.tile_id();
         let desc = tile_usage.tile_obj().desc();
+        res.tiles().add_user(&tile_usage);
         self.res_mut().tiles.push((tile_usage, idx, sel));
         cfg.alloc_tile(idx);
 
         Ok((tile_id, desc))
     }
 
-    fn free_tile(&mut self, sel: Selector) -> Result<(), Error> {
+    fn free_tile(&mut self, res: &Resources, sel: Selector) -> Result<(), Error> {
         log!(crate::LOG_TILES, "{}: free_tile(sel={})", self.name(), sel);
 
         let idx = self
@@ -462,12 +568,12 @@ pub trait Child {
             .iter()
             .position(|(_, _, psel)| *psel == sel)
             .ok_or_else(|| Error::new(Code::InvArgs))?;
-        self.remove_pe_by_idx(idx)?;
+        self.remove_pe_by_idx(res, idx)?;
 
         Ok(())
     }
 
-    fn remove_pe_by_idx(&mut self, idx: usize) -> Result<(), Error> {
+    fn remove_pe_by_idx(&mut self, res: &Resources, idx: usize) -> Result<(), Error> {
         let (tile_usage, idx, ep_sel) = self.res_mut().tiles.remove(idx);
         log!(
             crate::LOG_TILES,
@@ -481,21 +587,22 @@ pub trait Child {
         let crd = CapRngDesc::new(CapType::OBJECT, ep_sel, 1);
         // TODO if that fails, we need to kill this child because otherwise we don't get the tile back
         syscalls::revoke(self.activity_sel(), crd, true).ok();
+        res.tiles().remove_user(&tile_usage);
         cfg.free_tile(idx);
 
         Ok(())
     }
 
-    fn remove_resources_async(&mut self) {
+    fn remove_resources_async(&mut self, res: &mut Resources) {
         while !self.res().sessions.is_empty() {
             let (idx, sess) = self.res_mut().sessions.remove(0);
             self.cfg().close_session(idx);
-            sess.close_async(self.id()).ok();
+            sess.close_async(res, self.id()).ok();
         }
 
         while !self.res().services.is_empty() {
             let (id, _) = self.res_mut().services.remove(0);
-            let serv = services::remove_service(id);
+            let serv = res.services_mut().remove_service(id);
             self.cfg().unreg_service(serv.name());
         }
 
@@ -504,289 +611,23 @@ pub trait Child {
         }
 
         while !self.res().tiles.is_empty() {
-            self.remove_pe_by_idx(0).ok();
+            self.remove_pe_by_idx(res, 0).ok();
         }
-    }
-}
-
-pub fn add_child(
-    id: Id,
-    act_id: tcu::ActId,
-    act_sel: Selector,
-    rgate: &RecvGate,
-    sgate_sel: Selector,
-    name: String,
-) -> Result<(), Error> {
-    let mut childs = borrow_mut();
-    let nid = childs.next_id();
-    let child = childs.child_by_id_mut(id).unwrap();
-    let our_sel = child.obtain(act_sel)?;
-    let child_name = format!("{}.{}", child.name(), name);
-
-    log!(
-        crate::LOG_CHILD,
-        "{}: add_child(act={}, name={}, sgate_sel={}) -> child(id={}, name={})",
-        child.name(),
-        act_sel,
-        name,
-        sgate_sel,
-        nid,
-        child_name
-    );
-
-    if child.res().childs.iter().any(|c| c.1 == act_sel) {
-        return Err(Error::new(Code::Exists));
-    }
-
-    #[allow(clippy::useless_conversion)]
-    let sgate = SendGate::new_with(
-        SGateArgs::new(rgate)
-            .credits(1)
-            .label(tcu::Label::from(nid)),
-    )?;
-    let our_sg_sel = sgate.sel();
-    let nchild = Box::new(ForeignChild::new(
-        nid,
-        child.layer() + 1,
-        child_name,
-        // actually, we don't know the tile it's running on. But the TileUsage is only used to set
-        // the PMP EPs and currently, no child can actually influence these. For that reason,
-        // all childs get the same PMP EPs, so that we can also give the same PMP EPs to childs
-        // of childs.
-        child.our_tile(),
-        act_id,
-        our_sel,
-        sgate,
-        child.cfg(),
-        child.mem().clone(),
-    ));
-    nchild.delegate(our_sg_sel, sgate_sel)?;
-
-    child.res_mut().childs.push((nid, act_sel));
-    childs.add(nchild);
-    Ok(())
-}
-
-pub fn open_session_async(id: Id, dst_sel: Selector, name: &str) -> Result<(), Error> {
-    let (sname, sarg) = {
-        let mut childs = borrow_mut();
-        let child = childs.child_by_id_mut(id).unwrap();
-        log!(
-            crate::LOG_SERV,
-            "{}: open_sess(dst_sel={}, name={})",
-            child.name(),
-            dst_sel,
-            name
-        );
-
-        let cfg = child.cfg();
-        let (_idx, sdesc) = cfg
-            .get_session(name)
-            .ok_or_else(|| Error::new(Code::InvArgs))?;
-        if sdesc.is_used() {
-            return Err(Error::new(Code::Exists));
-        }
-        (sdesc.name().global().clone(), sdesc.arg().clone())
-    };
-
-    let serv = services::get_mut_by_name(&sname)?;
-    let serv_sel = serv.sel();
-    let sess = Session::new_async(id, dst_sel, serv, &sarg)?;
-
-    // get child and session desc again
-    let mut childs = borrow_mut();
-    let child = childs.child_by_id_mut(id).unwrap();
-    let cfg = child.cfg();
-    let (idx, sdesc) = cfg
-        .get_session(name)
-        .ok_or_else(|| Error::new(Code::InvArgs))?;
-
-    // check again if it's still unused, because of the async call above
-    if sdesc.is_used() {
-        return Err(Error::new(Code::Exists));
-    }
-
-    syscalls::get_sess(serv_sel, child.activity_sel(), dst_sel, sess.ident())?;
-
-    sdesc.mark_used();
-    child.res_mut().sessions.push((idx, sess));
-
-    Ok(())
-}
-
-pub fn close_session_async(id: Id, sel: Selector) -> Result<(), Error> {
-    let sess = {
-        let mut childs = borrow_mut();
-        let child = childs.child_by_id_mut(id).unwrap();
-
-        log!(crate::LOG_SERV, "{}: close_sess(sel={})", child.name(), sel);
-
-        let (cfg_idx, sess) = {
-            let sessions = &mut child.res_mut().sessions;
-            sessions
-                .iter()
-                .position(|(_, s)| s.sel() == sel)
-                .ok_or_else(|| Error::new(Code::InvArgs))
-                .map(|res_idx| sessions.remove(res_idx))
-        }?;
-
-        child.cfg().close_session(cfg_idx);
-        sess
-    };
-
-    sess.close_async(id)
-}
-
-pub fn rem_child_async(id: Id, act_sel: Selector) -> Result<(), Error> {
-    let cid = {
-        let mut childs = borrow_mut();
-        let child = childs.child_by_id_mut(id).unwrap();
-
-        log!(
-            crate::LOG_CHILD,
-            "{}: rem_child(act={})",
-            child.name(),
-            act_sel
-        );
-
-        let idx = child
-            .res()
-            .childs
-            .iter()
-            .position(|c| c.1 == act_sel)
-            .ok_or_else(|| Error::new(Code::InvArgs))?;
-        let cid = child.res().childs[idx].0;
-        child.res_mut().childs.remove(idx);
-        cid
-    };
-
-    ChildManager::remove_rec_async(cid);
-    Ok(())
-}
-
-pub fn get_info(id: Id, idx: Option<usize>) -> Result<ResMngActInfoResult, Error> {
-    let layer = {
-        let mut childs = borrow_mut();
-        let child = childs.child_by_id_mut(id).unwrap();
-        if !child.cfg().can_get_info() {
-            return Err(Error::new(Code::NoPerm));
-        }
-        child.layer()
-    };
-
-    let (parent_num, parent_layer) = if let Some(presmng) = Activity::own().resmng() {
-        match presmng.get_activity_count() {
-            Err(e) if e.code() == Code::NoPerm => (0, 0),
-            Err(e) => return Err(e),
-            Ok(res) => res,
-        }
-    }
-    else {
-        (0, 0)
-    };
-
-    let own_num = {
-        let mut childs = borrow_mut();
-        let mut own_num = childs.ids.len() + 1;
-        for id in childs.ids.clone() {
-            if childs.child_by_id_mut(id).unwrap().subsys().is_some() {
-                own_num -= 1;
-            }
-        }
-        own_num
-    };
-
-    if let Some(mut idx) = idx {
-        if idx < parent_num {
-            Ok(ResMngActInfoResult::Info(
-                Activity::own().resmng().unwrap().get_activity_info(idx)?,
-            ))
-        }
-        else if idx - parent_num >= own_num {
-            Err(Error::new(Code::NotFound))
-        }
-        else {
-            idx -= parent_num;
-
-            // the first is always us
-            if idx == 0 {
-                let kmem_quota = Activity::own().kmem().quota()?;
-                let tile_quota = Activity::own().tile().quota()?;
-                let mem = memory::container();
-                return Ok(ResMngActInfoResult::Info(ResMngActInfo {
-                    id: Activity::own().id(),
-                    layer: parent_layer + 0,
-                    name: env::args().next().unwrap().to_string(),
-                    daemon: true,
-                    umem: Quota::new(
-                        parent_num as QuotaId,
-                        mem.capacity() as usize,
-                        mem.available() as usize,
-                    ),
-                    kmem: kmem_quota,
-                    eps: *tile_quota.endpoints(),
-                    time: *tile_quota.time(),
-                    pts: *tile_quota.page_tables(),
-                    tile: Activity::own().tile_id(),
-                }));
-            }
-            idx -= 1;
-
-            // find the next non-subsystem child
-            let mut childs = borrow_mut();
-            let act = loop {
-                let cid = childs.ids[idx];
-                let act = childs.child_by_id_mut(cid).unwrap();
-                if act.subsys().is_none() {
-                    break act;
-                }
-                idx += 1;
-            };
-
-            let kmem_quota = act
-                .kmem()
-                .map(|km| km.quota())
-                .unwrap_or_else(|| Ok(Quota::default()))?;
-            let tile_quota = act
-                .child_tile()
-                .map(|tile| tile.tile_obj().quota())
-                .unwrap_or_else(|| Ok(TileQuota::default()))?;
-            Ok(ResMngActInfoResult::Info(ResMngActInfo {
-                id: act.activity_id(),
-                layer: parent_layer + act.layer(),
-                name: act.name().to_string(),
-                daemon: act.daemon(),
-                umem: Quota::new(
-                    parent_num as QuotaId + act.mem().id as QuotaId,
-                    act.mem().total as usize,
-                    act.mem().quota.get() as usize,
-                ),
-                kmem: kmem_quota,
-                eps: *tile_quota.endpoints(),
-                time: *tile_quota.time(),
-                pts: *tile_quota.page_tables(),
-                tile: act.our_tile().tile_id(),
-            }))
-        }
-    }
-    else {
-        let total = own_num + parent_num;
-        Ok(ResMngActInfoResult::Count((total, layer)))
     }
 }
 
 pub struct OwnChild {
     id: Id,
     // the activity has to be dropped before we drop the tile
-    activity: Option<RunningProgramActivity>,
-    our_tile: Rc<tiles::TileUsage>,
-    _domain_tile: Option<Rc<tiles::TileUsage>>,
-    child_tile: Rc<tiles::TileUsage>,
+    activity: Option<Box<dyn RunningActivity>>,
+    our_tile: TileUsage,
+    _domain_tile: Option<TileUsage>,
+    child_tile: TileUsage,
     name: String,
     args: Vec<String>,
     cfg: Rc<AppConfig>,
     mem: Rc<ChildMem>,
-    res: Resources,
+    res: ChildResources,
     sub: Option<SubsystemBuilder>,
     daemon: bool,
     kmem: Rc<KMem>,
@@ -796,9 +637,9 @@ impl OwnChild {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: Id,
-        our_tile: Rc<tiles::TileUsage>,
-        _domain_tile: Option<Rc<tiles::TileUsage>>,
-        child_tile: Rc<tiles::TileUsage>,
+        our_tile: TileUsage,
+        _domain_tile: Option<TileUsage>,
+        child_tile: TileUsage,
         args: Vec<String>,
         daemon: bool,
         kmem: Rc<KMem>,
@@ -815,7 +656,7 @@ impl OwnChild {
             args,
             cfg,
             mem,
-            res: Resources::default(),
+            res: ChildResources::default(),
             sub,
             daemon,
             activity: None,
@@ -823,33 +664,26 @@ impl OwnChild {
         }
     }
 
-    pub fn start(
-        &mut self,
-        act: ChildActivity,
-        mapper: &mut dyn Mapper,
-        file: FileRef<dyn File>,
-    ) -> Result<(), Error> {
+    pub fn set_running(&mut self, act: Box<dyn RunningActivity>) {
         log!(
             crate::LOG_DEF,
-            "Starting boot module '{}' on tile{} with arguments {:?}",
+            "Starting '{}' on {} with arguments {:?}",
             self.name(),
             self.child_tile().unwrap().tile_id(),
             &self.args[1..]
         );
 
-        self.activity = Some(act.exec_file(mapper, file, &self.args)?);
-
-        Ok(())
+        self.activity = Some(act);
     }
 
-    pub fn has_unmet_reqs(&self) -> bool {
+    pub fn has_unmet_reqs(&self, res: &Resources) -> bool {
         for sess in self.cfg().sessions() {
-            if sess.is_dep() && services::get_mut_by_name(sess.name().global()).is_err() {
+            if sess.is_dep() && res.services().get_by_name(sess.name().global()).is_err() {
                 return true;
             }
         }
         for scrt in self.cfg().sess_creators() {
-            if services::get_mut_by_name(scrt.serv_name()).is_err() {
+            if res.services().get_by_name(scrt.serv_name()).is_err() {
                 return true;
             }
         }
@@ -870,6 +704,10 @@ impl Child for OwnChild {
         &self.name
     }
 
+    fn arguments(&self) -> &[String] {
+        &self.args
+    }
+
     fn daemon(&self) -> bool {
         self.daemon
     }
@@ -878,12 +716,12 @@ impl Child for OwnChild {
         false
     }
 
-    fn our_tile(&self) -> Rc<tiles::TileUsage> {
-        self.our_tile.clone()
+    fn our_tile(&self) -> &TileUsage {
+        &self.our_tile
     }
 
-    fn child_tile(&self) -> Option<Rc<tiles::TileUsage>> {
-        Some(self.child_tile.clone())
+    fn child_tile(&self) -> Option<&TileUsage> {
+        Some(&self.child_tile)
     }
 
     fn activity_id(&self) -> tcu::ActId {
@@ -915,11 +753,11 @@ impl Child for OwnChild {
         self.cfg.clone()
     }
 
-    fn res(&self) -> &Resources {
+    fn res(&self) -> &ChildResources {
         &self.res
     }
 
-    fn res_mut(&mut self) -> &mut Resources {
+    fn res_mut(&mut self) -> &mut ChildResources {
         &mut self.res
     }
 
@@ -948,10 +786,10 @@ pub struct ForeignChild {
     act_id: tcu::ActId,
     layer: u32,
     name: String,
-    parent_tile: Rc<tiles::TileUsage>,
+    parent_tile: TileUsage,
     cfg: Rc<AppConfig>,
     mem: Rc<ChildMem>,
-    res: Resources,
+    res: ChildResources,
     act_sel: Selector,
     _sgate: SendGate,
 }
@@ -959,16 +797,19 @@ pub struct ForeignChild {
 impl ForeignChild {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        res: &Resources,
         id: Id,
         layer: u32,
         name: String,
-        parent_tile: Rc<tiles::TileUsage>,
+        parent_tile: TileUsage,
         act_id: tcu::ActId,
         act_sel: Selector,
         sgate: SendGate,
         cfg: Rc<AppConfig>,
         mem: Rc<ChildMem>,
     ) -> Self {
+        res.tiles().add_user(&parent_tile);
+
         ForeignChild {
             id,
             layer,
@@ -976,7 +817,7 @@ impl ForeignChild {
             parent_tile,
             cfg,
             mem,
-            res: Resources::default(),
+            res: ChildResources::default(),
             act_id,
             act_sel,
             _sgate: sgate,
@@ -997,6 +838,10 @@ impl Child for ForeignChild {
         &self.name
     }
 
+    fn arguments(&self) -> &[String] {
+        &[]
+    }
+
     fn daemon(&self) -> bool {
         false
     }
@@ -1005,11 +850,11 @@ impl Child for ForeignChild {
         true
     }
 
-    fn our_tile(&self) -> Rc<tiles::TileUsage> {
-        self.parent_tile.clone()
+    fn our_tile(&self) -> &TileUsage {
+        &self.parent_tile
     }
 
-    fn child_tile(&self) -> Option<Rc<tiles::TileUsage>> {
+    fn child_tile(&self) -> Option<&TileUsage> {
         None
     }
 
@@ -1037,11 +882,11 @@ impl Child for ForeignChild {
         self.cfg.clone()
     }
 
-    fn res(&self) -> &Resources {
+    fn res(&self) -> &ChildResources {
         &self.res
     }
 
-    fn res_mut(&mut self) -> &mut Resources {
+    fn res_mut(&mut self) -> &mut ChildResources {
         &mut self.res
     }
 
@@ -1072,21 +917,8 @@ pub struct ChildManager {
     foreigns: usize,
 }
 
-static MNG: StaticRefCell<ChildManager> = StaticRefCell::new(ChildManager::new());
-
-pub fn borrow_mut() -> RefMut<'static, ChildManager> {
-    // let mut bt = [0usize; 16];
-    // let count = backtrace::collect(bt.as_mut());
-    // println!("Backtrace:");
-    // for i in 0..count {
-    //     println!("  {:#x}", bt[i]);
-    // }
-
-    MNG.borrow_mut()
-}
-
-impl ChildManager {
-    pub const fn new() -> Self {
+impl Default for ChildManager {
+    fn default() -> Self {
         ChildManager {
             flags: Flags::STARTING,
             childs: Treap::new(),
@@ -1096,7 +928,9 @@ impl ChildManager {
             foreigns: 0,
         }
     }
+}
 
+impl ChildManager {
     pub fn should_stop(&self) -> bool {
         // don't stop if we didn't have a child yet. this is necessary, because we use derive_srv
         // asynchronously and thus switch to a different thread while starting a subsystem. thus, if
@@ -1161,74 +995,85 @@ impl ChildManager {
         syscalls::activity_wait(&sels, event).unwrap();
     }
 
-    pub fn handle_upcall_async(msg: &'static tcu::Message) {
+    pub fn handle_upcall_async(
+        &mut self,
+        reqs: &Requests,
+        res: &mut Resources,
+        msg: &'static tcu::Message,
+    ) {
         let mut de = M3Deserializer::new(msg.as_words());
         let opcode: kif::upcalls::Operation = de.pop().unwrap();
 
         match opcode {
-            kif::upcalls::Operation::ACT_WAIT => Self::upcall_wait_act_async(&mut de),
-            kif::upcalls::Operation::DERIVE_SRV => Self::upcall_derive_srv(msg, &mut de),
+            kif::upcalls::Operation::ACT_WAIT => self.upcall_wait_act_async(reqs, res, &mut de),
+            kif::upcalls::Operation::DERIVE_SRV => self.upcall_derive_srv(msg, &mut de),
             _ => panic!("Unexpected upcall {}", opcode),
         }
 
         let mut reply_buf = MsgBuf::borrow_def();
-        m3::build_vmsg!(reply_buf, kif::DefaultReply { error: Code::None });
+        m3::build_vmsg!(reply_buf, kif::DefaultReply {
+            error: Code::Success
+        });
         RecvGate::upcall()
             .reply(&reply_buf, msg)
             .expect("Upcall reply failed");
     }
 
-    fn upcall_wait_act_async(de: &mut M3Deserializer<'_>) {
+    fn upcall_wait_act_async(
+        &mut self,
+        reqs: &Requests,
+        res: &mut Resources,
+        de: &mut M3Deserializer<'_>,
+    ) {
         let upcall: kif::upcalls::ActivityWait = de.pop().unwrap();
 
-        Self::kill_child_async(upcall.act_sel, upcall.exitcode);
+        self.kill_child_async(reqs, res, upcall.act_sel, upcall.exitcode);
 
         // wait for the next
-        {
-            let mut childs = borrow_mut();
-            let no_wait_childs = childs.daemons() + childs.foreigns();
-            if !childs.flags.contains(Flags::SHUTDOWN) && childs.children() == no_wait_childs {
-                childs.flags.set(Flags::SHUTDOWN, true);
-                drop(childs);
-                Self::kill_daemons_async();
-                services::shutdown_async();
-            }
+        let no_wait_childs = self.daemons() + self.foreigns();
+        if !self.flags.contains(Flags::SHUTDOWN) && self.children() == no_wait_childs {
+            self.flags.set(Flags::SHUTDOWN, true);
+            self.kill_daemons_async(reqs, res);
+            res.services_mut().shutdown_async();
         }
 
-        let mut childs = borrow_mut();
-        if !childs.should_stop() {
-            childs.start_waiting(1);
+        if !self.should_stop() {
+            self.start_waiting(1);
         }
     }
 
-    fn upcall_derive_srv(msg: &'static tcu::Message, de: &mut M3Deserializer<'_>) {
+    fn upcall_derive_srv(&mut self, msg: &'static tcu::Message, de: &mut M3Deserializer<'_>) {
         let upcall: kif::upcalls::DeriveSrv = de.pop().unwrap();
 
         thread::notify(upcall.event, Some(msg));
     }
 
-    pub fn kill_child_async(sel: Selector, exitcode: i32) {
-        let maybe_id = {
-            let childs = borrow_mut();
-            childs.sel_to_id(sel)
-        };
+    pub fn kill_child_async(
+        &mut self,
+        reqs: &Requests,
+        res: &mut Resources,
+        sel: Selector,
+        exitcode: Code,
+    ) {
+        if let Some(id) = self.sel_to_id(sel) {
+            let child = self.remove_rec_async(reqs, res, id).unwrap();
 
-        if let Some(id) = maybe_id {
-            let child = Self::remove_rec_async(id).unwrap();
-
-            if exitcode != 0 {
-                println!("Child '{}' exited with exitcode {}", child.name(), exitcode);
+            if exitcode != Code::Success {
+                println!(
+                    "Child '{}' exited with exitcode {:?}",
+                    child.name(),
+                    exitcode
+                );
             }
         }
     }
 
-    fn kill_daemons_async() {
-        let ids = borrow_mut().ids.clone();
+    fn kill_daemons_async(&mut self, reqs: &Requests, res: &mut Resources) {
+        let ids = self.ids.clone();
         for id in ids {
             // kill all daemons that didn't register a service
             let can_kill = {
-                let childs = borrow_mut();
-                let child = childs.child_by_id(id).unwrap();
+                let child = self.child_by_id(id).unwrap();
                 if child.daemon() && child.res().services.is_empty() {
                     log!(crate::LOG_CHILD, "Killing child '{}'", child.name());
                     true
@@ -1239,16 +1084,223 @@ impl ChildManager {
             };
 
             if can_kill {
-                Self::remove_rec_async(id).unwrap();
+                self.remove_rec_async(reqs, res, id).unwrap();
             }
         }
     }
 
-    fn remove_rec_async(id: Id) -> Option<Box<dyn Child>> {
-        let maybe_child = {
-            let mut childs = borrow_mut();
-            childs.childs.remove(&id)
+    pub fn get_info(
+        &mut self,
+        res: &Resources,
+        id: Id,
+        idx: Option<usize>,
+    ) -> Result<resmng::ActInfoResult, Error> {
+        let layer = {
+            let child = self.child_by_id_mut(id).unwrap();
+            if !child.cfg().can_get_info() {
+                return Err(Error::new(Code::NoPerm));
+            }
+            child.layer()
         };
+
+        let (parent_num, parent_layer) = if let Some(presmng) = Activity::own().resmng() {
+            match presmng.get_activity_count() {
+                Err(e) if e.code() == Code::NoPerm => (0, 0),
+                Err(e) => return Err(e),
+                Ok(res) => res,
+            }
+        }
+        else {
+            (0, 0)
+        };
+
+        let own_num = {
+            let mut own_num = self.ids.len() + 1;
+            for id in self.ids.clone() {
+                if self.child_by_id_mut(id).unwrap().subsys().is_some() {
+                    own_num -= 1;
+                }
+            }
+            own_num
+        };
+
+        if let Some(mut idx) = idx {
+            if idx < parent_num {
+                Ok(resmng::ActInfoResult::Info(
+                    Activity::own().resmng().unwrap().get_activity_info(idx)?,
+                ))
+            }
+            else if idx - parent_num >= own_num {
+                Err(Error::new(Code::NotFound))
+            }
+            else {
+                idx -= parent_num;
+
+                // the first is always us
+                if idx == 0 {
+                    let kmem_quota = Activity::own().kmem().quota()?;
+                    let tile_quota = Activity::own().tile().quota()?;
+                    let mem = res.memory();
+                    return Ok(resmng::ActInfoResult::Info(resmng::ActInfo {
+                        id: Activity::own().id(),
+                        layer: parent_layer + 0,
+                        name: env::args().next().unwrap().to_string(),
+                        daemon: true,
+                        umem: Quota::new(
+                            parent_num as QuotaId,
+                            mem.capacity() as usize,
+                            mem.available() as usize,
+                        ),
+                        kmem: kmem_quota,
+                        eps: *tile_quota.endpoints(),
+                        time: *tile_quota.time(),
+                        pts: *tile_quota.page_tables(),
+                        tile: Activity::own().tile_id(),
+                    }));
+                }
+                idx -= 1;
+
+                // find the next non-subsystem child
+                let act = loop {
+                    let cid = self.ids[idx];
+                    let act = self.child_by_id_mut(cid).unwrap();
+                    if act.subsys().is_none() {
+                        break act;
+                    }
+                    idx += 1;
+                };
+
+                let kmem_quota = act
+                    .kmem()
+                    .map(|km| km.quota())
+                    .unwrap_or_else(|| Ok(Quota::default()))?;
+                let tile_quota = act
+                    .child_tile()
+                    .map(|tile| tile.tile_obj().quota())
+                    .unwrap_or_else(|| Ok(TileQuota::default()))?;
+                Ok(resmng::ActInfoResult::Info(resmng::ActInfo {
+                    id: act.activity_id(),
+                    layer: parent_layer + act.layer(),
+                    name: act.name().to_string(),
+                    daemon: act.daemon(),
+                    umem: Quota::new(
+                        parent_num as QuotaId + act.mem().id as QuotaId,
+                        act.mem().total as usize,
+                        act.mem().quota.get() as usize,
+                    ),
+                    kmem: kmem_quota,
+                    eps: *tile_quota.endpoints(),
+                    time: *tile_quota.time(),
+                    pts: *tile_quota.page_tables(),
+                    tile: act.our_tile().tile_id(),
+                }))
+            }
+        }
+        else {
+            let total = own_num + parent_num;
+            Ok(resmng::ActInfoResult::Count((total, layer)))
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_child(
+        &mut self,
+        res: &Resources,
+        id: Id,
+        act_id: tcu::ActId,
+        act_sel: Selector,
+        rgate: &RecvGate,
+        sgate_sel: Selector,
+        name: String,
+    ) -> Result<(), Error> {
+        let nid = self.next_id();
+        let child = self.child_by_id_mut(id).unwrap();
+        let our_sel = child.obtain(act_sel)?;
+        let child_name = format!("{}.{}", child.name(), name);
+
+        log!(
+            crate::LOG_CHILD,
+            "{}: add_child(act={}, name={}, sgate_sel={}) -> child(id={}, name={})",
+            child.name(),
+            act_sel,
+            name,
+            sgate_sel,
+            nid,
+            child_name
+        );
+
+        if child.res().childs.iter().any(|c| c.1 == act_sel) {
+            return Err(Error::new(Code::Exists));
+        }
+
+        let sgate = SendGate::new_with(
+            SGateArgs::new(rgate)
+                .credits(1)
+                .label(tcu::Label::from(nid)),
+        )?;
+        let our_sg_sel = sgate.sel();
+        let nchild = Box::new(ForeignChild::new(
+            res,
+            nid,
+            child.layer() + 1,
+            child_name,
+            // actually, we don't know the tile it's running on. But the TileUsage is only used to set
+            // the PMP EPs and currently, no child can actually influence these. For that reason,
+            // all childs get the same PMP EPs, so that we can also give the same PMP EPs to childs
+            // of childs.
+            child.our_tile().clone(),
+            act_id,
+            our_sel,
+            sgate,
+            child.cfg(),
+            child.mem().clone(),
+        ));
+        nchild.delegate(our_sg_sel, sgate_sel)?;
+
+        child.res_mut().childs.push((nid, act_sel));
+        self.add(nchild);
+        Ok(())
+    }
+
+    pub fn rem_child_async(
+        &mut self,
+        reqs: &Requests,
+        res: &mut Resources,
+        id: Id,
+        act_sel: Selector,
+    ) -> Result<(), Error> {
+        let cid = {
+            let child = self.child_by_id_mut(id).unwrap();
+
+            log!(
+                crate::LOG_CHILD,
+                "{}: rem_child(act={})",
+                child.name(),
+                act_sel
+            );
+
+            let idx = child
+                .res()
+                .childs
+                .iter()
+                .position(|c| c.1 == act_sel)
+                .ok_or_else(|| Error::new(Code::InvArgs))?;
+            let cid = child.res().childs[idx].0;
+            child.res_mut().childs.remove(idx);
+            cid
+        };
+
+        self.remove_rec_async(reqs, res, cid);
+        Ok(())
+    }
+
+    fn remove_rec_async(
+        &mut self,
+        reqs: &Requests,
+        res: &mut Resources,
+        id: Id,
+    ) -> Option<Box<dyn Child>> {
+        let maybe_child = self.childs.remove(&id);
 
         if let Some(mut child) = maybe_child {
             log!(crate::LOG_CHILD, "Removing child '{}'", child.name());
@@ -1264,21 +1316,21 @@ impl ChildManager {
             )
             .ok();
             // now remove all potentially pending messages from the child
-            #[allow(clippy::useless_conversion)]
-            crate::requests::rgate().drop_msgs_with(child.id().into());
+            reqs.recv_gate().drop_msgs_with(child.id().into()).unwrap();
 
             for csel in &child.res().childs {
-                Self::remove_rec_async(csel.0);
+                self.remove_rec_async(reqs, res, csel.0);
             }
-            child.remove_resources_async();
+            child.remove_resources_async(res);
 
-            let mut childs = borrow_mut();
-            childs.ids.retain(|&i| i != id);
+            res.tiles().remove_user(child.our_tile());
+
+            self.ids.retain(|&i| i != id);
             if child.daemon() {
-                childs.daemons -= 1;
+                self.daemons -= 1;
             }
             if child.foreign() {
-                childs.foreigns -= 1;
+                self.foreigns -= 1;
             }
 
             log!(crate::LOG_CHILD, "Removed child '{}'", child.name());

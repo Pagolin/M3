@@ -26,7 +26,7 @@ using namespace m3;
 namespace pci {
 
 ProxiedPciDevice::ProxiedPciDevice(const char *name, TileISA isa)
-    : _tile(Tile::alloc(TileDesc(TileType::COMP_IMEM, isa))),
+    : _tile(Tile::alloc(TileDesc(TileType::COMP, isa))),
       _act(_tile, name),
       _mem(_act.get_mem(0, PCI_CFG_ADDR + REG_ADDR + PAGE_SIZE, MemGate::RW)),
       _sep(EP::alloc_for(_act, EP_INT)),
@@ -58,7 +58,7 @@ void ProxiedPciDevice::receiveInterrupt(ProxiedPciDevice *nic, m3::GateIStream &
     if(nic->_callback)
         nic->_callback();
     else
-        cout << "received interrupt, but no callback is registered.\n";
+        println("received interrupt, but no callback is registered."_cf);
 }
 
 }

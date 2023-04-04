@@ -22,16 +22,15 @@ use base::goff;
 use base::impl_boxitem;
 use base::kif;
 use base::log;
-use base::math;
 use base::mem::{size_of, GlobAddr, MsgBuf};
 use base::rc::Rc;
 use base::tcu;
 use base::time::{TimeDuration, TimeInstant};
 use base::tmif;
+use base::util::math;
 use core::cmp;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
-use paging::{Allocator, Phys};
 
 use crate::arch;
 use crate::helper;
@@ -41,6 +40,10 @@ use crate::quota::{self, PTQuota, Quota, TimeQuota};
 use crate::sendqueue;
 use crate::timer;
 use crate::vma::PfState;
+
+use isr::{ISRArch, ISR};
+
+use paging::{Allocator, ArchPaging, Paging, Phys};
 
 pub type Id = paging::ActId;
 
@@ -56,7 +59,8 @@ impl Allocator for PTAllocator {
             return Err(Error::new(Code::NoSpace));
         }
 
-        if let Some(pt) = PTS.borrow_mut().pop() {
+        let pt = PTS.borrow_mut().pop();
+        if let Some(pt) = pt {
             self.quota.set_left(self.quota.left() - 1);
             log!(
                 crate::LOG_PTS,
@@ -271,10 +275,10 @@ pub fn init() {
         our_ref.frames.push(frame);
         our_ref.init();
         our_ref.switch_to();
-        paging::enable_paging();
+        Paging::enable();
     }
     else {
-        paging::disable_paging();
+        Paging::disable();
     }
 
     // add default quota, now that initialization is done and we know how many PTs are left
@@ -353,7 +357,6 @@ pub fn idle() -> ActivityRef<'static> {
     ActivityRef::new(unsafe { IDLE.get_mut() })
 }
 
-#[allow(clippy::borrowed_box)]
 pub fn try_cur() -> Option<ActivityRef<'static>> {
     // safety: we check at runtime whether a reference to this activity already exists
     unsafe { CUR.get_mut() }
@@ -465,7 +468,7 @@ fn do_schedule(mut action: ScheduleAction) -> usize {
 
     // set SP for the next entry
     let new_state = next.user_state_addr;
-    isr::set_entry_sp(new_state + size_of::<arch::State>());
+    ISR::set_entry_sp(new_state + size_of::<arch::State>());
     let next_id = next.id();
     next.state = ActState::Running;
 
@@ -551,12 +554,12 @@ fn make_ready(mut act: Box<Activity>, budget: TimeDuration) {
     }
 }
 
-pub fn remove_cur(status: i32) {
+pub fn remove_cur(status: Code) {
     let cur_id = cur().id();
     remove(cur_id, status, true, true);
 }
 
-pub fn remove(id: Id, status: i32, notify: bool, sched: bool) {
+pub fn remove(id: Id, status: Code, notify: bool, sched: bool) {
     // safety: we don't hold a reference to an activity yet
     if let Some(v) = unsafe { ACTIVITIES.get_mut()[id as usize].take() } {
         // safety: the activity reference `v` is still valid here
@@ -570,10 +573,19 @@ pub fn remove(id: Id, status: i32, notify: bool, sched: bool) {
 
         log!(
             crate::LOG_ACTS,
-            "Removed Activity {} with status {}",
+            "Removed Activity {} with status {:?}",
             old.id(),
             status
         );
+
+        // flush+invalidate caches to ensure that we have a fresh view on memory. this is required,
+        // because we expect that the pager can just map arbitrary memory and the core sees the
+        // current state in DRAM. since the DRAM can change via the TCU as well, the core might have
+        // cachelines that reflect an older state of the memory. for that reason, we need to flush
+        // all cachelines to load everything from DRAM afterwards. note that the flush is done here,
+        // because we need to make sure that it happens *before* we invalidate the PMP-EPs
+        // (otherwise we cannot successfully writeback the cachelines).
+        helper::flush_cache();
 
         if notify {
             // change to our activity (no need to save old act_reg; activity is dead)
@@ -741,7 +753,11 @@ impl Activity {
     }
 
     fn can_block(&self, msgs: u16) -> bool {
-        if let Some(wep) = self.wait_ep {
+        // always block activities when they are waiting for a PF response
+        if self.pf_state.is_some() {
+            true
+        }
+        else if let Some(wep) = self.wait_ep {
             !tcu::TCU::has_msgs(wep)
         }
         else {
@@ -856,8 +872,8 @@ impl Activity {
             aspace.flush_tlb();
         }
         // remember the current tile and platform
-        crate::app_env().tile_id = pex_env().tile_id;
-        crate::app_env().platform = pex_env().platform;
+        crate::app_env().boot.tile_id = pex_env().tile_id;
+        crate::app_env().boot.platform = pex_env().platform;
         if self.id() != kif::tilemux::IDLE_ID {
             arch::init_state(
                 &mut self.user_state,
@@ -884,7 +900,7 @@ impl Activity {
                 ContResult::Success => Some(ScheduleAction::Block),
                 // failed, so remove activity
                 ContResult::Failure => {
-                    remove(self.id(), 1, true, false);
+                    remove(self.id(), Code::Unspecified, true, false);
                     Some(ScheduleAction::Kill)
                 },
                 // set the continuation again to retry later
@@ -930,7 +946,7 @@ impl Activity {
             tcu::MMIO_PRIV_ADDR,
             GlobAddr::new(tcu::MMIO_PRIV_ADDR as goff),
             tcu::MMIO_PRIV_SIZE / cfg::PAGE_SIZE,
-            rw,
+            kif::PageFlags::U | rw,
         )
         .unwrap();
 
@@ -940,6 +956,8 @@ impl Activity {
             self.map_segment(base, &_text_start, &_text_end, rx);
             self.map_segment(base, &_data_start, &_data_end, rw);
             self.map_segment(base, &_bss_start, &_bss_end, rw);
+            // ensure that the receive buffer does not overlap with text, data, and bss
+            assert!(cfg::TILEMUX_RBUF_SPACE >= &_bss_end as *const u8 as usize);
         }
 
         // map own receive buffer
@@ -978,7 +996,7 @@ impl Activity {
         .unwrap();
 
         // map PLIC
-        #[cfg(target_vendor = "hw")]
+        #[cfg(any(target_vendor = "hw", target_vendor = "hw22"))]
         {
             self.map(0x0C00_0000, GlobAddr::new(0x0C00_0000), 1, rw)
                 .unwrap();
@@ -1052,18 +1070,16 @@ impl Drop for Activity {
             self.ctxsws,
         );
 
-        // flush+invalidate caches to ensure that we have a fresh view on memory. this is required
-        // because of the way the pager handles copy-on-write: it reads the current copy from the
-        // owner and updates the version in DRAM. for that reason, the cache for new activities needs to
-        // be clear, so that the cache loads the current version from DRAM.
-        helper::flush_invalidate();
-
         if let Some(ref mut aspace) = self.aspace {
             // free frames we allocated for env, receive buffers etc.
             for f in &self.frames {
                 aspace.allocator_mut().free_pt(*f as paging::MMUPTE);
             }
         }
+
+        // explicitly remove fixed entry for messages from TLB (not done by TLB flush)
+        let virt = MsgBuf::borrow_def().bytes().as_ptr() as usize;
+        tcu::TCU::invalidate_page(self.id() as u16, virt).ok();
 
         // remove activity from other modules
         self.time_quota.detach();

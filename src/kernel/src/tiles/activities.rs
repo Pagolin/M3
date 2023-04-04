@@ -27,13 +27,12 @@ use base::tcu::{ActId, EpId, TileId, STD_EPS_COUNT, UPCALL_REP_OFF};
 use bitflags::bitflags;
 use core::fmt;
 
-use crate::arch::loader;
 use crate::cap::{CapTable, Capability, EPObject, KMemObject, KObject, TileObject};
 use crate::com::{QueueId, SendQueue};
 use crate::ktcu;
 use crate::platform;
-use crate::tiles::{tilemng, ActivityMng};
-use crate::workloop::thread_startup;
+use crate::thread_startup;
+use crate::tiles::{loader, tilemng, ActivityMng};
 
 bitflags! {
     pub struct ActivityFlags : u32 {
@@ -57,7 +56,7 @@ struct ExitWait {
 pub const KERNEL_ID: ActId = 0xFFFF;
 pub const INVAL_ID: ActId = 0xFFFF;
 
-static EXIT_EVENT: i32 = 0;
+static EXIT_EVENT: Code = Code::Success;
 static EXIT_LISTENERS: StaticRefCell<Vec<ExitWait>> = StaticRefCell::new(Vec::new());
 
 pub struct Activity {
@@ -70,8 +69,7 @@ pub struct Activity {
     kmem: SRc<KMemObject>,
 
     state: Cell<State>,
-    pid: Cell<Option<i32>>,
-    exit_code: Cell<Option<i32>>,
+    exit_code: Cell<Option<Code>>,
     first_sel: Cell<CapSel>,
 
     obj_caps: RefCell<CapTable>,
@@ -98,7 +96,6 @@ impl Activity {
             eps_start,
             kmem,
             state: Cell::from(State::INIT),
-            pid: Cell::from(None),
             exit_code: Cell::from(None),
             first_sel: Cell::from(kif::FIRST_FREE_SEL),
             obj_caps: RefCell::from(CapTable::default()),
@@ -145,22 +142,15 @@ impl Activity {
     }
 
     pub fn init_async(&self) -> Result<(), Error> {
-        #[cfg(not(target_vendor = "host"))]
-        {
-            loader::init_memory_async(self)?;
-            if !platform::tile_desc(self.tile_id()).is_device() {
-                self.init_eps_async()
-            }
-            else {
-                Ok(())
-            }
+        loader::init_memory_async(self)?;
+        if !platform::tile_desc(self.tile_id()).is_device() {
+            self.init_eps_async()
         }
-
-        #[cfg(target_vendor = "host")]
-        Ok(())
+        else {
+            Ok(())
+        }
     }
 
-    #[cfg(not(target_vendor = "host"))]
     fn init_eps_async(&self) -> Result<(), Error> {
         use crate::cap::{RGateObject, SGateObject};
         use base::cfg;
@@ -296,11 +286,7 @@ impl Activity {
         self.first_sel.set(sel);
     }
 
-    pub fn pid(&self) -> Option<i32> {
-        self.pid.get()
-    }
-
-    pub fn fetch_exit_code(&self) -> Option<i32> {
+    pub fn fetch_exit_code(&self) -> Option<Code> {
         self.exit_code.replace(None)
     }
 
@@ -312,7 +298,7 @@ impl Activity {
         self.eps.borrow_mut().retain(|e| e.ep() != ep.ep());
     }
 
-    fn fetch_exit(&self, sels: &[u64]) -> Option<(CapSel, i32)> {
+    fn fetch_exit(&self, sels: &[u64]) -> Option<(CapSel, Code)> {
         for sel in sels {
             let wact = self
                 .obj_caps()
@@ -337,7 +323,7 @@ impl Activity {
         None
     }
 
-    pub fn wait_exit_async(&self, event: u64, sels: &[u64]) -> Option<(CapSel, i32)> {
+    pub fn wait_exit_async(&self, event: u64, sels: &[u64]) -> Option<(CapSel, Code)> {
         let res = loop {
             // independent of how we notify the activity, check for exits in case the activity we wait for
             // already exited.
@@ -346,7 +332,7 @@ impl Activity {
                 if event != 0 {
                     self.upcall_activity_wait(event, sel, code);
                     // we never report the result via syscall reply, but we need Some for below.
-                    break Some((kif::INVALID_SEL, 0));
+                    break Some((kif::INVALID_SEL, Code::Success));
                 }
                 else {
                     break Some((sel, code));
@@ -404,14 +390,14 @@ impl Activity {
         });
     }
 
-    pub fn upcall_activity_wait(&self, event: u64, act_sel: CapSel, exitcode: i32) {
+    pub fn upcall_activity_wait(&self, event: u64, act_sel: CapSel, exitcode: Code) {
         let mut msg = MsgBuf::borrow_def();
         build_vmsg!(
             msg,
             kif::upcalls::Operation::ACT_WAIT,
             kif::upcalls::ActivityWait {
                 event,
-                error: Code::None,
+                error: Code::Success,
                 act_sel,
                 exitcode,
             }
@@ -448,23 +434,16 @@ impl Activity {
             .unwrap();
     }
 
-    pub fn start_app_async(&self, pid: Option<i32>) -> Result<(), Error> {
+    pub fn start_app_async(&self) -> Result<(), Error> {
         if self.state.get() != State::INIT {
             return Ok(());
         }
 
-        self.pid.set(pid);
         self.state.set(State::RUNNING);
-
-        ActivityMng::start_activity_async(self)?;
-
-        let pid = loader::start(self)?;
-        self.pid.set(Some(pid));
-
-        Ok(())
+        ActivityMng::start_activity_async(self)
     }
 
-    pub fn stop_app_async(&self, exit_code: i32, is_self: bool) {
+    pub fn stop_app_async(&self, exit_code: Code, is_self: bool) {
         if self.state.get() == State::DEAD {
             return;
         }
@@ -481,7 +460,12 @@ impl Activity {
         }
         else if self.state.get() == State::RUNNING {
             // devices always exit successfully
-            let exit_code = if self.tile_desc().is_device() { 0 } else { 1 };
+            let exit_code = if self.tile_desc().is_device() {
+                Code::Success
+            }
+            else {
+                Code::Unspecified
+            };
             self.exit_app_async(exit_code, true);
         }
         else {
@@ -491,30 +475,19 @@ impl Activity {
         }
     }
 
-    fn exit_app_async(&self, exit_code: i32, stop: bool) {
-        #[cfg(target_vendor = "host")]
-        if let Some(pid) = self.pid() {
-            if stop {
-                // first kill the process to ensure that it cannot use EPs anymore
-                ktcu::reset_tile(self.tile_id(), pid).unwrap();
-            }
+    fn exit_app_async(&self, exit_code: Code, stop: bool) {
+        let mut tilemux = tilemng::tilemux(self.tile_id());
+        // force-invalidate standard EPs
+        for ep in self.eps_start..self.eps_start + STD_EPS_COUNT as EpId {
+            // ignore failures
+            tilemux.invalidate_ep(self.id(), ep, true, false).ok();
         }
+        drop(tilemux);
 
-        #[cfg(not(target_vendor = "host"))]
-        {
-            let mut tilemux = tilemng::tilemux(self.tile_id());
-            // force-invalidate standard EPs
-            for ep in self.eps_start..self.eps_start + STD_EPS_COUNT as EpId {
-                // ignore failures
-                tilemux.invalidate_ep(self.id(), ep, true, false).ok();
-            }
-            drop(tilemux);
-
-            // force-invalidate all other EPs of this activity
-            for ep in &*self.eps.borrow_mut() {
-                // ignore failures here
-                ep.deconfigure(true).ok();
-            }
+        // force-invalidate all other EPs of this activity
+        for ep in &*self.eps.borrow_mut() {
+            // ignore failures here
+            ep.deconfigure(true).ok();
         }
 
         // make sure that we don't get further syscalls by this activity

@@ -29,13 +29,13 @@ RecvBuf *RecvBufs::alloc(size_t size) {
     // page align the receive buffers so that we can map them
     auto maybe_addr = _bufs.allocate(size, vm ? PAGE_SIZE : 1);
     if(!maybe_addr)
-        VTHROW(Errors::NO_SPACE, "Insufficient rbuf space for " << size << "b");
+        vthrow(Errors::NO_SPACE, "Insufficient rbuf space for {}b"_cf, size);
 
     auto addr = maybe_addr.unwrap();
     std::unique_ptr<MemGate> mgate;
     if(vm) {
         // allocate memory
-        size_t aligned_size = Math::round_up(size, PAGE_SIZE);
+        size_t aligned_size = Math::round_up(size, static_cast<size_t>(PAGE_SIZE));
         mgate.reset(new MemGate(MemGate::create_global(aligned_size, MemGate::R)));
 
         // map receive buffer

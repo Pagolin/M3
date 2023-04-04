@@ -18,37 +18,44 @@ use base::col::Vec;
 use base::kif;
 use base::tcu::TileId;
 
-use crate::arch::ktcu;
+use crate::ktcu;
 use crate::platform;
 use crate::tiles::TileMux;
 
-static INST: LazyStaticRefCell<Vec<TileMux>> = LazyStaticRefCell::default();
+static MUXES: LazyStaticRefCell<Vec<Vec<Option<TileMux>>>> = LazyStaticRefCell::default();
 
 pub fn init() {
     deprivilege_tiles();
 
     let mut muxes = Vec::new();
     for tile in platform::user_tiles() {
-        muxes.push(TileMux::new(tile));
+        let cid = tile.chip() as usize;
+        let tid = tile.tile() as usize;
+        if cid >= muxes.len() {
+            assert_eq!(cid, muxes.len());
+            muxes.push(Vec::new());
+        }
+        while tid != muxes[cid].len() {
+            muxes[cid].push(None);
+        }
+        muxes[cid].push(Some(TileMux::new(tile)));
     }
-    INST.set(muxes);
+    MUXES.set(muxes);
 }
 
 pub fn tilemux(tile: TileId) -> RefMut<'static, TileMux> {
-    assert!(tile > 0);
-    RefMut::map(INST.borrow_mut(), |tiles| &mut tiles[tile as usize - 1])
+    RefMut::map(MUXES.borrow_mut(), |muxes| {
+        muxes[tile.chip() as usize][tile.tile() as usize]
+            .as_mut()
+            .unwrap()
+    })
 }
 
 pub fn find_tile(tiledesc: &kif::TileDesc) -> Option<TileId> {
-    for tile in platform::user_tiles() {
-        if platform::tile_desc(tile).isa() == tiledesc.isa()
+    platform::user_tiles().find(|&tile| {
+        platform::tile_desc(tile).isa() == tiledesc.isa()
             || platform::tile_desc(tile).tile_type() == tiledesc.tile_type()
-        {
-            return Some(tile);
-        }
-    }
-
-    None
+    })
 }
 
 fn deprivilege_tiles() {

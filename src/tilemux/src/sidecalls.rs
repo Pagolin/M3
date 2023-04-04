@@ -85,7 +85,7 @@ fn activity_ctrl(msg: &'static tcu::Message) -> Result<(), Error> {
                 Some(cur) if cur.id() == r.act_id => {
                     crate::reg_scheduling(activities::ScheduleAction::Kill)
                 },
-                _ => activities::remove(r.act_id, 0, false, true),
+                _ => activities::remove(r.act_id, Code::Success, false, true),
             }
             Ok(())
         },
@@ -108,7 +108,9 @@ fn map(msg: &'static tcu::Message) -> Result<(), Error> {
     let virt = r.virt as usize;
 
     // ensure that we don't overmap critical areas
-    if virt < cfg::ENV_START || virt + r.pages * cfg::PAGE_SIZE > cfg::TILE_MEM_BASE {
+    if virt < cfg::TILEMUX_RBUF_SPACE + cfg::TILEMUX_RBUF_SIZE
+        || virt + r.pages * cfg::PAGE_SIZE > cfg::TILE_MEM_BASE
+    {
         return Err(Error::new(Code::InvArgs));
     }
 
@@ -116,7 +118,7 @@ fn map(msg: &'static tcu::Message) -> Result<(), Error> {
         // if we unmap these pages, flush+invalidate the cache to ensure that we read this memory
         // fresh from DRAM the next time we use it.
         let perm = if (r.perm & kif::PageFlags::RWX).is_empty() {
-            helper::flush_invalidate();
+            helper::flush_cache();
             r.perm
         }
         else {
@@ -261,6 +263,14 @@ fn reset_stats(_msg: &'static tcu::Message) -> Result<(), Error> {
     Ok(())
 }
 
+fn shutdown(_msg: &'static tcu::Message) -> Result<(), Error> {
+    log!(crate::LOG_SIDECALLS, "sidecall::shutdown()",);
+
+    base::machine::write_coverage(0);
+
+    Ok(())
+}
+
 fn handle_sidecall(msg: &'static tcu::Message) {
     let mut de = M3Deserializer::new(msg.as_words());
 
@@ -287,6 +297,7 @@ fn handle_sidecall(msg: &'static tcu::Message) {
         kif::tilemux::Sidecalls::SET_QUOTA => set_quota(msg),
         kif::tilemux::Sidecalls::REMOVE_QUOTAS => remove_quotas(msg),
         kif::tilemux::Sidecalls::RESET_STATS => reset_stats(msg),
+        kif::tilemux::Sidecalls::SHUTDOWN => shutdown(msg),
         _ => Err(Error::new(Code::NotSup)),
     };
 
@@ -294,7 +305,7 @@ fn handle_sidecall(msg: &'static tcu::Message) {
     base::build_vmsg!(
         reply_buf,
         match res {
-            Ok(_) => Code::None,
+            Ok(_) => Code::Success,
             Err(e) => {
                 log!(crate::LOG_SIDECALLS, "sidecall {} failed: {}", op, e);
                 e.code()

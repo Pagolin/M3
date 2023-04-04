@@ -18,6 +18,7 @@
 
 #![no_std]
 
+use m3::errors::Error;
 use m3::test::{DefaultWvTester, WvTester};
 use m3::{println, wv_run_suite};
 
@@ -40,13 +41,12 @@ mod trgate;
 mod tsems;
 mod tserver;
 mod tsgate;
-#[cfg(not(target_vendor = "host"))]
 mod tsrvmsgs;
 mod tsyscalls;
 mod ttreap;
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let mut tester = DefaultWvTester::default();
     wv_run_suite!(tester, tboxlist::run);
     wv_run_suite!(tester, tbufio::run);
@@ -66,12 +66,10 @@ pub fn main() -> i32 {
     wv_run_suite!(tester, tsgate::run);
     wv_run_suite!(tester, tsems::run);
     wv_run_suite!(tester, tserver::run);
-    // requires a TileMux with notification support
-    #[cfg(not(target_vendor = "host"))]
     wv_run_suite!(tester, tsrvmsgs::run);
     wv_run_suite!(tester, tsyscalls::run);
     wv_run_suite!(tester, ttreap::run);
     wv_run_suite!(tester, tactivity::run);
     println!("{}", tester);
-    0
+    Ok(())
 }

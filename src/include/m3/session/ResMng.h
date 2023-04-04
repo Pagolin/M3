@@ -51,6 +51,7 @@ public:
         USE_RGATE,
         USE_SGATE,
         USE_SEM,
+        USE_MOD,
     };
 
     class ResMngException : public m3::Exception {
@@ -72,8 +73,7 @@ public:
             };
 
             OStringStream os(msg_buf, sizeof(msg_buf));
-            os << "The resource manager operation " << names[_op]
-               << " failed: " << Errors::to_string(code()) << " (" << code() << ")";
+            format_to(os, "The resource manager operation {} failed: {}"_cf, names[_op], code());
             return msg_buf;
         }
 
@@ -126,8 +126,8 @@ public:
         retrieve_result(CLOSE_SESS, reply);
     }
 
-    void alloc_mem(capsel_t sel, goff_t addr, size_t size, int perm) {
-        GateIStream reply = send_receive_vmsg(_sgate, ALLOC_MEM, sel, addr, size, perm);
+    void alloc_mem(capsel_t sel, size_t size, int perm) {
+        GateIStream reply = send_receive_vmsg(_sgate, ALLOC_MEM, sel, size, perm);
         retrieve_result(ALLOC_MEM, reply);
     }
 
@@ -136,11 +136,11 @@ public:
         retrieve_result(FREE_MEM, reply);
     }
 
-    TileDesc alloc_tile(capsel_t sel, const TileDesc &desc) {
-        GateIStream reply = send_receive_vmsg(_sgate, ALLOC_TILE, sel, desc.value());
+    TileDesc alloc_tile(capsel_t sel, const TileDesc &desc, bool inherit_pmp) {
+        GateIStream reply = send_receive_vmsg(_sgate, ALLOC_TILE, sel, desc.value(), inherit_pmp);
         retrieve_result(ALLOC_TILE, reply);
         TileDesc::value_t res;
-        tileid_t tileid;
+        TileId::raw_t tileid;
         reply >> tileid >> res;
         return TileDesc(res);
     }
@@ -168,6 +168,11 @@ public:
         retrieve_result(USE_SEM, reply);
     }
 
+    void use_mod(capsel_t sel, const std::string_view &name) {
+        GateIStream reply = send_receive_vmsg(_sgate, USE_MOD, sel, name);
+        retrieve_result(USE_MOD, reply);
+    }
+
 private:
     void clone(actid_t act_id, capsel_t act_sel, capsel_t sgate_sel, const std::string_view &name) {
         GateIStream reply = send_receive_vmsg(_sgate, ADD_CHILD, act_id, act_sel, sgate_sel, name);
@@ -177,7 +182,7 @@ private:
     void retrieve_result(Operation op, GateIStream &reply) {
         Errors::Code res;
         reply >> res;
-        if(res != Errors::NONE) {
+        if(res != Errors::SUCCESS) {
             // ensure that we ACK the message before throwing the exception, which might trigger
             // other actions that want to reuse the default RecvGate.
             reply.finish();

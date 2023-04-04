@@ -1,17 +1,20 @@
 <config>
-    <kernel args="kernel -f $fs.path" />
+    <mods>
+        <mod name="fs" file="bench.img" />
+    </mods>
+    <kernel args="kernel" />
     <dom>
         <app args="root">
             <dom>
-                <app args="m3fs mem $fs.size" daemon="1">
+                <app args="m3fs mem" daemon="1">
                     <serv name="m3fs" />
-                    <physmem addr="0" size="$fs.size" />
+                    <mod name="fs" />
                 </app>
             </dom>
             <dom>
-                <app args="pager maxcli=4 $fs.size">
+                <app args="pager maxcli=4 sem=net">
                     <sess name="m3fs" />
-                    <physmem addr="0" size="$fs.size" perm="r" />
+                    <mod name="fs" perm="r" />
                     <tiles type="core" count="2" />
                     <app args="/sbin/net -d lo -m 2 net 127.0.0.1" daemon="1">
                         <serv name="net" />
@@ -25,11 +28,13 @@
                     <dom>
                         <app args="/bin/varcv tcp 1337 10" daemon="1">
                             <sess name="net" args="bufs=1M socks=1 tcp=1337" />
+                            <sem name="net" />
                         </app>
                     </dom>
                     <app args="/bin/vasnd -w 2 -r 8 -p tcp 127.0.0.1 1337">
                         <sess name="net" args="bufs=1M socks=1" />
                         <sess name="vamic" />
+                        <sem name="net" />
                     </app>
                 </app>
             </dom>

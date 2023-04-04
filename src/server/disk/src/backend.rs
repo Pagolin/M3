@@ -19,7 +19,7 @@
 use m3::com::MemGate;
 use m3::errors::Error;
 
-pub trait BlockDeviceTrait {
+pub trait BlockDevice {
     fn partition_exists(&self, part: usize) -> bool;
 
     fn read(
@@ -40,13 +40,3 @@ pub trait BlockDeviceTrait {
         bytes: usize,
     ) -> Result<(), Error>;
 }
-
-#[cfg(target_vendor = "host")]
-#[path = "host/mod.rs"]
-mod backend_impl;
-
-#[cfg(not(target_vendor = "host"))]
-#[path = "gem5/mod.rs"]
-mod backend_impl;
-
-pub use self::backend_impl::BlockDevice;

@@ -15,37 +15,10 @@
 
 #pragma once
 
-#include <base/Common.h>
-#include <base/Env.h>
+#include <base/TCU.h>
+#include <base/util/Option.h>
 
-#define MODID_TILE0  0x04
-#define MODID_TILE1  0x05
-#define MODID_TILE2  0x06
-#define MODID_TILE3  0x24
-#define MODID_TILE4  0x25
-#define MODID_TILE5  0x26
-#define MODID_TILE6  0x00
-#define MODID_TILE7  0x01
-#define MODID_TILE8  0x02
-#define MODID_TILE9  0x20
-#define MODID_TILE10 0x21
-#define MODID_TILE11 0x22
-
-#define MODID_PM0    MODID_TILE2
-#define MODID_PM1    MODID_TILE4
-#define MODID_PM2    MODID_TILE5
-#define MODID_PM3    MODID_TILE6
-#define MODID_PM4    MODID_TILE7
-#define MODID_PM5    MODID_TILE8
-#define MODID_PM6    MODID_TILE9
-#define MODID_PM7    MODID_TILE10
-
-#define MODID_UART   MODID_TILE0
-#define MODID_ETH    MODID_TILE1
-#define MODID_DRAM1  MODID_TILE3
-#define MODID_DRAM2  MODID_TILE11
-
-enum class Tile {
+enum Tile {
     T0,
     T1,
     T2,
@@ -58,16 +31,24 @@ enum class Tile {
 };
 
 // clang-format off
-static uint TILE_IDS[][9] = {
-    // platform = gem5
-    { 0, 1, 2, 3, 4, 5, 6, 7, 9 },
-    // platform = hw
-    { MODID_PM0, MODID_PM1, MODID_PM2, MODID_PM3,
-      MODID_PM4, MODID_PM5, MODID_PM6, MODID_PM7,
-      MODID_DRAM2 },
+static m3::TileId TILE_IDS[9] = {
+    // TODO parse the actual configuration from the boot environment
+    /* T0  */ m3::TileId(0, 0),
+    /* T1  */ m3::TileId(0, 1),
+    /* T2  */ m3::TileId(0, 2),
+    /* T3  */ m3::TileId(0, 3),
+    /* T4  */ m3::TileId(0, 4),
+    /* T5  */ m3::TileId(0, 5),
+    /* T6  */ m3::TileId(0, 6),
+    /* T7  */ m3::TileId(0, 7),
+    /* MEM */ m3::TileId(0, 8),
 };
 // clang-format on
 
-static inline uint tile_id(Tile tile) {
-    return TILE_IDS[m3::env()->platform][static_cast<size_t>(tile)];
+static inline m3::Option<size_t> tile_idx(m3::TileId id) {
+    for(size_t i = 0; i < ARRAY_SIZE(TILE_IDS); ++i) {
+        if(TILE_IDS[i].raw() == id.raw())
+            return m3::Some(i);
+    }
+    return m3::None;
 }

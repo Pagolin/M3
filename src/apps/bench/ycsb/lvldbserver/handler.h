@@ -22,24 +22,13 @@
 
 #include "ops.h"
 
-#if defined(__kachel__)
-#    define SYSC_RECEIVE 0xFFFF
-#    define SYSC_SEND    0xFFFE
+static constexpr long SYSC_RECEIVE = 0xFFFF;
+static constexpr long SYSC_SEND = 0xFFFE;
+
 extern "C" void __m3_sysc_trace(bool enable, size_t max);
 extern "C" void __m3_sysc_trace_start(long n);
 extern "C" void __m3_sysc_trace_stop();
 extern "C" uint64_t __m3_sysc_systime();
-#else
-void __m3_sysc_trace(bool, size_t) {
-}
-void __m3_sysc_trace_start(long) {
-}
-void __m3_sysc_trace_stop() {
-}
-uint64_t __m3_sysc_systime() {
-    return 0;
-}
-#endif
 
 class OpHandler {
 public:
@@ -60,7 +49,7 @@ public:
     virtual m3::Option<size_t> send(const void *data, size_t len) = 0;
 
     static uint64_t read_u64(const uint8_t *bytes);
-    static size_t from_bytes(uint8_t *package_buffer, size_t package_size, Package &pkg);
+    static size_t from_bytes(const uint8_t *package_buffer, size_t package_size, Package &pkg);
 };
 
 class TCPOpHandler : public OpHandler {
@@ -91,4 +80,22 @@ private:
     uint64_t _total_ops;
     m3::Endpoint _ep;
     m3::FileRef<m3::UdpSocket> _socket;
+};
+
+class TCUOpHandler : public OpHandler {
+    const size_t MAX_RESULT_SIZE = 1024 * 1024;
+
+public:
+    explicit TCUOpHandler();
+
+    virtual Result receive(Package &pkg) override;
+    virtual bool respond(size_t bytes) override;
+
+private:
+    m3::Option<size_t> send(const void *data, size_t len) override;
+    m3::Option<size_t> receive(void *data, size_t max);
+
+    m3::RecvGate _rgate;
+    m3::MemGate _result;
+    m3::GateIStream *_last_req;
 };

@@ -15,8 +15,6 @@
  * General Public License version 2 for more details.
  */
 
-// for offset_of with unstable_const feature
-#![feature(const_ptr_offset_from)]
 #![no_std]
 
 use core::str::FromStr;
@@ -26,13 +24,13 @@ use m3::cell::{LazyStaticCell, StaticRefCell};
 use m3::col::{BTreeMap, String, ToString, Vec};
 use m3::com::{GateIStream, RecvGate};
 use m3::errors::{Code, Error};
-use m3::math;
 use m3::net::{log_net, NetLogEvent};
 use m3::rc::Rc;
 use m3::server::{CapExchange, Handler, Server, SessId, SessionContainer, DEF_MAX_CLIENTS};
 use m3::session::NetworkOp;
-use m3::tiles::Activity;
+use m3::tiles::OwnActivity;
 use m3::time::{TimeDuration, TimeInstant};
+use m3::util::math;
 use m3::{env, reply_vmsg};
 use m3::{log, println};
 
@@ -121,7 +119,7 @@ impl NetHandler<'_> {
 
     fn get_ip(&self, is: &mut GateIStream<'_>) -> Result<(), Error> {
         let addr = to_m3_addr(OWN_IP.get());
-        reply_vmsg!(is, Code::None as i32, addr.0)
+        reply_vmsg!(is, Code::Success, addr.0)
     }
 
     fn get_nameserver(&self, is: &mut GateIStream<'_>) -> Result<(), Error> {
@@ -130,7 +128,7 @@ impl NetHandler<'_> {
         }
 
         let addr = to_m3_addr(NAMESERVER.get());
-        reply_vmsg!(is, Code::None as i32, addr.0)
+        reply_vmsg!(is, Code::Success, addr.0)
     }
 
     // processes outgoing events to clients
@@ -267,7 +265,7 @@ fn usage() -> ! {
     println!("  -a: the network mask to use (default: 255.255.255.0)");
     println!("  -n: the IP address of the DNS server");
     println!("  -g: the IP address of the default gateway");
-    m3::exit(1);
+    OwnActivity::exit_with(Code::InvArgs);
 }
 
 fn parse_args() -> Result<NetSettings, String> {
@@ -329,7 +327,7 @@ fn parse_args() -> Result<NetSettings, String> {
 }
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     smoltcpif::logger::init().unwrap();
 
     let settings = parse_args().unwrap_or_else(|e| {
@@ -337,13 +335,11 @@ pub fn main() -> i32 {
         usage();
     });
 
-    let mut rgate = RecvGate::new(
+    let rgate = RecvGate::new(
         math::next_log2(sess::MSG_SIZE * settings.max_clients),
         math::next_log2(sess::MSG_SIZE),
     )
     .expect("failed to create main rgate for handler!");
-
-    rgate.activate().expect("Failed to activate main rgate");
 
     let mut neighbor_cache_entries = [None; 8];
     let neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
@@ -386,10 +382,8 @@ pub fn main() -> i32 {
     else {
         #[cfg(target_vendor = "gem5")]
         let device = driver::E1000Device::new().expect("Failed to create E1000 driver");
-        #[cfg(target_vendor = "hw")]
+        #[cfg(any(target_vendor = "hw", target_vendor = "hw22"))]
         let device = driver::AXIEthDevice::new().expect("Failed to create AXI ethernet driver");
-        #[cfg(target_vendor = "host")]
-        let device = driver::DevFifo::new(&settings.name);
         driver::DriverInterface::Eth(
             InterfaceBuilder::new(device, Vec::with_capacity(MAX_SOCKETS))
                 .hardware_addr(EthernetAddress::from_bytes(&OWN_MAC).into())
@@ -437,7 +431,7 @@ pub fn main() -> i32 {
             }
 
             // Check if we got some messages through our main rgate.
-            if let Some(msg) = rgatec.fetch() {
+            if let Ok(msg) = rgatec.fetch() {
                 let mut is = GateIStream::new(msg, &rgatec);
                 if let Err(e) = handler.handle(&mut is) {
                     is.reply_error(e.code()).ok();
@@ -478,9 +472,9 @@ pub fn main() -> i32 {
 
         log_net(NetLogEvent::StartedWaiting, 0, 0);
         log!(LOG_DETAIL, "Sleeping for {:?}", sleep_nanos);
-        Activity::own().sleep_for(sleep_nanos).ok();
+        OwnActivity::sleep_for(sleep_nanos).ok();
         log_net(NetLogEvent::StoppedWaiting, 0, 0);
     }
 
-    0
+    Ok(())
 }

@@ -15,15 +15,17 @@
 
 use base::cell::{LazyStaticRefCell, StaticCell};
 use base::cfg;
-use base::envdata;
+use base::env;
 use base::io;
 use base::kif::{PageFlags, Perm, TileDesc};
 use base::libc;
 use base::log;
 use base::machine;
-use base::tcu::{EpId, Message, Reg, EP_REGS, TCU};
+use base::tcu::{EpId, Message, Reg, TileId, EP_REGS, TCU};
 
 use crate::paging;
+
+use isr::{ISRArch, ISR};
 
 static STATE: LazyStaticRefCell<isr::State> = LazyStaticRefCell::default();
 pub static XLATES: StaticCell<u64> = StaticCell::new(0);
@@ -39,7 +41,7 @@ pub extern "C" fn exit(_code: i32) {
 }
 
 pub extern "C" fn tmcall(state: &mut isr::State) -> *mut libc::c_void {
-    let virt = state.r[isr::TMC_ARG1] as usize;
+    let virt = state.r[isr::TMC_ARG1];
     let access = Perm::from_bits_truncate(state.r[isr::TMC_ARG2] as u32);
     let flags = PageFlags::from(access) & PageFlags::RW;
 
@@ -66,11 +68,12 @@ pub extern "C" fn tmcall(state: &mut isr::State) -> *mut libc::c_void {
 }
 
 pub fn init(name: &str) {
-    io::init(envdata::get().tile_id, name);
+    io::init(TileId::new_from_raw(env::boot().tile_id as u16), name);
 
-    if !TileDesc::new_from(envdata::get().tile_desc).has_virtmem() {
+    if !TileDesc::new_from(env::boot().tile_desc).has_virtmem() {
+        use ::paging::ArchPaging;
         log!(crate::LOG_DEF, "Disabling paging...");
-        ::paging::disable_paging();
+        ::paging::Paging::disable();
     }
     else {
         log!(crate::LOG_DEF, "Setting up paging...");
@@ -79,13 +82,13 @@ pub fn init(name: &str) {
 
     log!(crate::LOG_DEF, "Setting up interrupts...");
     STATE.set(isr::State::default());
-    isr::init(&mut STATE.borrow_mut());
-    isr::init_tmcalls(tmcall);
-    isr::enable_irqs();
+    ISR::init(&mut STATE.borrow_mut());
+    ISR::reg_tm_calls(tmcall);
+    ISR::enable_irqs();
 }
 
 pub fn virt_to_phys(virt: usize) -> (usize, ::paging::Phys) {
-    if !TileDesc::new_from(envdata::get().tile_desc).has_virtmem() {
+    if !TileDesc::new_from(env::boot().tile_desc).has_virtmem() {
         (virt, virt as u64)
     }
     else {

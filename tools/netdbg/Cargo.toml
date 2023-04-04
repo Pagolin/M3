@@ -1,0 +1,10 @@
+[package]
+name = "netdbg"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+regex = "1"
+lazy_static = "1.4.0"
+num_enum = "0.5.7"
+smoltcp = "0.8.1"

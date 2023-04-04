@@ -42,11 +42,17 @@ MemGate::~MemGate() {
     }
 }
 
-MemGate MemGate::create_global_for(goff_t addr, size_t size, int perms, capsel_t sel, uint flags) {
+MemGate MemGate::create_global(size_t size, int perms, capsel_t sel, uint flags) {
     if(sel == INVALID)
         sel = Activity::own().alloc_sel();
-    Activity::own().resmng()->alloc_mem(sel, addr, size, perms);
+    Activity::own().resmng()->alloc_mem(sel, size, perms);
     return MemGate(flags, sel, false);
+}
+
+MemGate MemGate::bind_bootmod(const std::string_view &name) {
+    auto sel = Activity::own().alloc_sel();
+    Activity::own().resmng()->use_mod(sel, name);
+    return MemGate(0, sel, true);
 }
 
 MemGate MemGate::derive(goff_t offset, size_t size, int perms) const {
@@ -64,14 +70,14 @@ MemGate MemGate::derive_for(capsel_t act, capsel_t cap, goff_t offset, size_t si
 void MemGate::read(void *data, size_t len, goff_t offset) {
     const EP &ep = activate();
     Errors::Code res = TCU::get().read(ep.id(), data, len, offset);
-    if(EXPECT_FALSE(res != Errors::NONE))
+    if(EXPECT_FALSE(res != Errors::SUCCESS))
         throw TCUException(res);
 }
 
 void MemGate::write(const void *data, size_t len, goff_t offset) {
     const EP &ep = activate();
     Errors::Code res = TCU::get().write(ep.id(), data, len, offset);
-    if(EXPECT_FALSE(res != Errors::NONE))
+    if(EXPECT_FALSE(res != Errors::SUCCESS))
         throw TCUException(res);
 }
 

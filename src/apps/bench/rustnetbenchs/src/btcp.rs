@@ -16,7 +16,7 @@
 use m3::com::Semaphore;
 use m3::errors::Code;
 use m3::format;
-use m3::net::{Endpoint, StreamSocket, StreamSocketArgs, TcpSocket};
+use m3::net::{Endpoint, Socket, StreamSocket, StreamSocketArgs, TcpSocket};
 use m3::println;
 use m3::session::NetworkManager;
 use m3::test::WvTester;
@@ -64,7 +64,7 @@ fn latency(t: &mut dyn WvTester) {
 
             let stop = TimeInstant::now();
 
-            wv_assert_eq!(t, *pkt_size, recv_size as usize);
+            wv_assert_eq!(t, *pkt_size, recv_size);
             res.push(stop.duration_since(start));
         }
 
@@ -161,7 +161,7 @@ fn bandwidth(t: &mut dyn WvTester) {
                     failures += 1;
                 },
                 Ok(size) => {
-                    received_bytes += size as usize;
+                    received_bytes += size;
                     receive_count += 1;
                     timeout = TimeInstant::now() + TIMEOUT;
                     failures = 0;

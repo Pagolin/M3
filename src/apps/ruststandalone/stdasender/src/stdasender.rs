@@ -24,9 +24,9 @@ mod helper;
 mod paging;
 
 use base::log;
-use base::math;
 use base::mem::MsgBuf;
 use base::tcu::{EpId, TileId, FIRST_USER_EP, TCU};
+use base::util::math;
 
 const LOG_DEF: bool = true;
 const LOG_DETAIL: bool = false;
@@ -34,7 +34,7 @@ const LOG_TMCALLS: bool = false;
 
 const OWN_ACT: u16 = 0xFFFF;
 
-const DST_TILE: TileId = 0;
+const DST_TILE: TileId = TileId::new(0, 0);
 const DST_EP: EpId = FIRST_USER_EP;
 
 const REP: EpId = FIRST_USER_EP;
@@ -82,7 +82,7 @@ pub extern "C" fn env_run() {
     while recv < SENDS {
         // received reply?
         while let Some(m) = helper::fetch_msg(REP, rbuf_virt) {
-            assert_eq!({ m.header.label }, 0x2222);
+            assert_eq!(m.header.label(), 0x2222);
             log!(crate::LOG_DETAIL, "got reply {}", m.as_words()[0]);
 
             // ack reply

@@ -21,15 +21,10 @@
 pub mod childs;
 pub mod config;
 mod events;
-pub mod gates;
-pub mod memory;
-mod parser;
 pub mod requests;
-pub mod sems;
+pub mod resources;
 pub mod sendqueue;
-pub mod services;
 pub mod subsys;
-pub mod tiles;
 
 /// Logs general operations
 pub const LOG_DEF: bool = true;

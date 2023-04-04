@@ -16,7 +16,7 @@
 use m3::cap::Selector;
 use m3::com::Semaphore;
 use m3::errors::Code;
-use m3::net::{Endpoint, IpAddr, State, StreamSocket, StreamSocketArgs, TcpSocket};
+use m3::net::{Endpoint, IpAddr, Socket, State, StreamSocket, StreamSocketArgs, TcpSocket};
 use m3::session::NetworkManager;
 use m3::test::{DefaultWvTester, WvTester};
 use m3::tiles::{Activity, ActivityArgs, ChildActivity, RunningActivity, Tile};
@@ -164,7 +164,7 @@ fn nonblocking_client(t: &mut dyn WvTester) {
 }
 
 fn nonblocking_server(t: &mut dyn WvTester) {
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut act = wv_assert_ok!(ChildActivity::new_with(
         tile,
         ActivityArgs::new("tcp-server")
@@ -219,7 +219,7 @@ fn nonblocking_server(t: &mut dyn WvTester) {
         wv_assert_ok!(socket.set_blocking(true));
         wv_assert_ok!(socket.close());
 
-        0
+        Ok(())
     }));
 
     let nm = wv_assert_ok!(NetworkManager::new("net0"));
@@ -232,7 +232,7 @@ fn nonblocking_server(t: &mut dyn WvTester) {
 
     wv_assert_ok!(socket.close());
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }
 
 fn open_close(t: &mut dyn WvTester) {
@@ -256,7 +256,7 @@ fn open_close(t: &mut dyn WvTester) {
 }
 
 fn receive_after_close(t: &mut dyn WvTester) {
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut act = wv_assert_ok!(ChildActivity::new_with(
         tile,
         ActivityArgs::new("tcp-server")
@@ -296,7 +296,7 @@ fn receive_after_close(t: &mut dyn WvTester) {
         wv_assert_ok!(socket.close());
         wv_assert_eq!(t, socket.state(), State::Closed);
 
-        0
+        Ok(())
     }));
 
     let nm = wv_assert_ok!(NetworkManager::new("net0"));
@@ -321,7 +321,7 @@ fn receive_after_close(t: &mut dyn WvTester) {
 
     wv_assert_ok!(socket.close());
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }
 
 fn data(t: &mut dyn WvTester) {

@@ -21,10 +21,10 @@ use m3::cfg;
 use m3::com::{MGateArgs, MemGate, Perm, Semaphore};
 use m3::errors::Code;
 use m3::goff;
-use m3::math;
 use m3::session::MapFlags;
 use m3::test::WvTester;
 use m3::tiles::{Activity, ChildActivity, RunningActivity, Tile};
+use m3::util::math;
 use m3::{wv_assert_eq, wv_assert_err, wv_assert_ok, wv_run_test};
 
 pub fn run(t: &mut dyn WvTester) {
@@ -109,7 +109,7 @@ fn remote_access(t: &mut dyn WvTester) {
     let sem1 = wv_assert_ok!(Semaphore::create(0));
     let sem2 = wv_assert_ok!(Semaphore::create(0));
 
-    let tile = wv_assert_ok!(Tile::get("clone"));
+    let tile = wv_assert_ok!(Tile::get("compat"));
     let mut child = wv_assert_ok!(ChildActivity::new(tile, "child"));
 
     let virt = if child.tile_desc().has_virtmem() {
@@ -157,7 +157,7 @@ fn remote_access(t: &mut dyn WvTester) {
         wv_assert_ok!(sem1.up());
         // wait for parent
         wv_assert_ok!(sem2.down());
-        0
+        Ok(())
     }));
 
     // wait until child is ready

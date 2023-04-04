@@ -19,6 +19,7 @@
 #pragma once
 
 #include <base/Types.h>
+#include <base/stream/Format.h>
 
 namespace m3 {
 
@@ -27,7 +28,7 @@ namespace m3 {
  */
 struct Errors {
     enum Code : int32_t {
-        NONE,
+        SUCCESS,
         // TCU errors
         NO_MEP,
         NO_SEP,
@@ -82,6 +83,7 @@ struct Errors {
         UTF8_ERROR,
         BAD_FD,
         SEEK_PIPE,
+        UNSPECIFIED,
         // networking
         INV_STATE,
         WOULD_BLOCK,
@@ -100,6 +102,13 @@ struct Errors {
      * @return the statically allocated error message for <code>
      */
     static const char *to_string(Code code);
+};
+
+template<>
+struct Formatter<Errors::Code> {
+    void format(OStream &os, const FormatSpecs &, const Errors::Code &e) const {
+        format_to(os, "{} ({})"_cf, Errors::to_string(e), static_cast<int32_t>(e));
+    }
 };
 
 }

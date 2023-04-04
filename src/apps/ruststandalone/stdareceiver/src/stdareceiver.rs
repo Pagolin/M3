@@ -23,11 +23,11 @@ mod helper;
 #[path = "../../vmtest/src/paging.rs"]
 mod paging;
 
-use base::cpu;
+use base::cpu::{CPUOps, CPU};
 use base::log;
-use base::math;
 use base::mem::MsgBuf;
 use base::tcu::{self, EpId, TCU};
+use base::util::math;
 
 const LOG_DEF: bool = true;
 const LOG_DETAIL: bool = false;
@@ -67,7 +67,7 @@ pub extern "C" fn env_run() {
                 break m;
             }
         };
-        assert_eq!({ rmsg.header.label }, 0x1234);
+        assert_eq!(rmsg.header.label(), 0x1234);
         log!(crate::LOG_DETAIL, "got message {}", rmsg.as_words()[0]);
 
         // send reply
@@ -80,8 +80,8 @@ pub extern "C" fn env_run() {
     }
 
     // give the other tiles some time
-    let begin = cpu::elapsed_cycles();
-    while cpu::elapsed_cycles() < begin + 100000 {}
+    let begin = CPU::elapsed_cycles();
+    while CPU::elapsed_cycles() < begin + 100000 {}
 
     log!(crate::LOG_DEF, "Shutting down");
     helper::exit(0);

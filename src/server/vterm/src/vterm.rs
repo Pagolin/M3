@@ -144,7 +144,7 @@ impl Channel {
 
         log!(crate::LOG_DEF, "[{}] vterm::get_tmode()", self.id,);
 
-        reply_vmsg!(is, Code::None as u32, MODE.get())
+        reply_vmsg!(is, Code::Success, MODE.get())
     }
 
     fn set_tmode(&mut self, is: &mut GateIStream<'_>) -> Result<(), Error> {
@@ -160,7 +160,7 @@ impl Channel {
         MODE.set(mode);
         INPUT.borrow_mut().clear();
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
     fn next_in(&mut self, is: &mut GateIStream<'_>) -> Result<(), Error> {
@@ -193,7 +193,7 @@ impl Channel {
             self.fetch_input(&mut input)?;
         }
 
-        reply_vmsg!(is, Code::None as u32, self.pos, self.len - self.pos)
+        reply_vmsg!(is, Code::Success, self.pos, self.len - self.pos)
     }
 
     fn fetch_input(&mut self, input: &mut RefMut<'_, Vec<u8>>) -> Result<(), Error> {
@@ -232,7 +232,7 @@ impl Channel {
         self.pos = 0;
         self.len = BUF_SIZE;
 
-        reply_vmsg!(is, Code::None as u32, 0usize, BUF_SIZE)
+        reply_vmsg!(is, Code::Success, 0usize, BUF_SIZE)
     }
 
     fn commit(&mut self, is: &mut GateIStream<'_>) -> Result<(), Error> {
@@ -257,7 +257,7 @@ impl Channel {
             self.pos += nbytes;
         }
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
     fn stat(&mut self, is: &mut GateIStream<'_>) -> Result<(), Error> {
@@ -267,7 +267,7 @@ impl Channel {
         };
 
         let mut reply = m3::mem::MsgBuf::borrow_def();
-        build_vmsg!(reply, Code::None, info);
+        build_vmsg!(reply, Code::Success, info);
         is.reply(&reply)
     }
 
@@ -310,7 +310,7 @@ impl Channel {
         // directly notify the client, if there is any input or output possible
         self.send_events();
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
     fn add_event(&mut self, event: FileEvent) -> bool {
@@ -410,7 +410,7 @@ impl VTermHandler {
                 }
 
                 // ignore all potentially outstanding messages of this session
-                rgate.drop_msgs_with(id as Label);
+                rgate.drop_msgs_with(id as Label).unwrap();
             }
         }
         Ok(())
@@ -512,7 +512,7 @@ impl Handler<VTermSession> for VTermHandler {
                     }
 
                     let sel = Activity::own().alloc_sel();
-                    let mut rgate = RecvGate::new_with(RGateArgs::default().order(6).msg_order(6))?;
+                    let rgate = RecvGate::new_with(RGateArgs::default().order(6).msg_order(6))?;
                     rgate.activate()?;
                     c.notify_gates = Some((rgate, SendGate::new_bind(sel)));
                     xchg.out_caps(kif::CapRngDesc::new(kif::CapType::OBJECT, sel, 1));
@@ -546,7 +546,7 @@ fn add_input(hdl: &mut VTermHandler, eof: bool, mut flush: bool, input: &mut Ref
             if let SessionData::Chan(c) = &mut s.data {
                 if let Some(msg) = c.pending_nextin.take() {
                     c.fetch_input(input).unwrap();
-                    reply_vmsg_late!(msg, Code::None as u32, c.pos, c.len - c.pos).unwrap();
+                    reply_vmsg_late!(msg, Code::Success, c.pos, c.len - c.pos).unwrap();
                     flush = false;
                 }
                 else if c.add_event(FileEvent::INPUT) {
@@ -561,7 +561,7 @@ fn receive_acks(hdl: &mut VTermHandler) {
     hdl.sessions.for_each(|s| match &mut s.data {
         SessionData::Chan(c) => {
             if let Some((rg, _sg)) = &c.notify_gates {
-                if let Some(msg) = rg.fetch() {
+                if let Ok(msg) = rg.fetch() {
                     rg.ack_msg(msg).unwrap();
                     // try again to send events, if there are some
                     c.send_events();
@@ -576,8 +576,7 @@ fn handle_input(hdl: &mut VTermHandler, msg: &'static Message) {
     let mut input = INPUT.borrow_mut();
     let mut buffer = BUFFER.borrow_mut();
 
-    let bytes =
-        unsafe { core::slice::from_raw_parts(msg.data.as_ptr(), msg.header.length as usize) };
+    let bytes = unsafe { core::slice::from_raw_parts(msg.data.as_ptr(), msg.header.length()) };
     let mut flush = false;
     let mut eof = false;
     if MODE.get() == Mode::RAW {
@@ -628,7 +627,7 @@ fn handle_input(hdl: &mut VTermHandler, msg: &'static Message) {
 }
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let mut hdl = VTermHandler {
         sel: 0,
         sessions: SessionContainer::new(DEF_MAX_CLIENTS),
@@ -640,25 +639,24 @@ pub fn main() -> i32 {
     let s = Server::new("vterm", &mut hdl).expect("Unable to create service 'vterm'");
     hdl.sel = s.sel();
 
-    REQHDL.set(RequestHandler::default().expect("Unable to create request handler"));
+    REQHDL.set(RequestHandler::new().expect("Unable to create request handler"));
 
     let sel = Activity::own().alloc_sel();
-    let mut serial_gate = Activity::own()
+    let serial_gate = Activity::own()
         .resmng()
         .unwrap()
         .get_serial(sel)
         .expect("Unable to allocate serial rgate");
-    serial_gate
-        .activate()
-        .expect("Unable to activate serial rgate");
 
     server_loop(|| {
         s.handle_ctrl_chan(&mut hdl)?;
 
-        if let Some(msg) = serial_gate.fetch() {
-            log!(crate::LOG_INOUT, "Got input message with {} bytes", {
-                msg.header.length
-            });
+        if let Ok(msg) = serial_gate.fetch() {
+            log!(
+                crate::LOG_INOUT,
+                "Got input message with {} bytes",
+                msg.header.length()
+            );
             handle_input(&mut hdl, msg);
             serial_gate.ack_msg(msg).unwrap();
         }
@@ -676,7 +674,7 @@ pub fn main() -> i32 {
                     // notice the invalidated sgate before getting the reply and therefore give
                     // up before receiving the reply a bit later anyway. this in turn causes
                     // trouble if the receive gate (with the reply) is reused for something else.
-                    is.reply_error(Code::None).ok();
+                    is.reply_error(Code::Success).ok();
                     hdl.close_sess(sid, is.rgate())
                 },
                 GenFileOp::STAT => hdl.with_chan(is, |c, is| c.stat(is)),
@@ -690,5 +688,5 @@ pub fn main() -> i32 {
     })
     .ok();
 
-    0
+    Ok(())
 }

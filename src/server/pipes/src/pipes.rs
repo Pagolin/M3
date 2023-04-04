@@ -36,7 +36,7 @@ use m3::server::{
 };
 use m3::session::{PipeOperation, ServerSession};
 use m3::tcu::Label;
-use m3::tiles::Activity;
+use m3::tiles::{Activity, OwnActivity};
 use m3::vec;
 use m3::vfs::GenFileOp;
 
@@ -108,7 +108,7 @@ impl PipesHandler {
                 let crt = sess.creator();
                 self.sessions.remove(crt, id);
                 // ignore all potentially outstanding messages of this session
-                rgate.drop_msgs_with(id as Label);
+                rgate.drop_msgs_with(id as Label).unwrap();
             }
         }
         Ok(())
@@ -352,7 +352,7 @@ fn usage() -> ! {
     println!("Usage: {} [-m <clients>]", env::args().next().unwrap());
     println!();
     println!("  -m: the maximum number of clients (receive slots)");
-    m3::exit(1);
+    OwnActivity::exit_with(Code::InvArgs);
 }
 
 fn parse_args() -> Result<PipesSettings, String> {
@@ -376,7 +376,7 @@ fn parse_args() -> Result<PipesSettings, String> {
 }
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let settings = parse_args().unwrap_or_else(|e| {
         println!("Invalid arguments: {}", e);
         usage();
@@ -409,7 +409,7 @@ pub fn main() -> i32 {
                     // notice the invalidated sgate before getting the reply and therefore give
                     // up before receiving the reply a bit later anyway. this in turn causes
                     // trouble if the receive gate (with the reply) is reused for something else.
-                    is.reply_error(Code::None).ok();
+                    is.reply_error(Code::Success).ok();
                     hdl.close_sess(sid, is.rgate())
                 },
                 Operation::STAT => hdl.with_chan(is, |c, is| c.stat(is)),
@@ -420,5 +420,5 @@ pub fn main() -> i32 {
     })
     .ok();
 
-    0
+    Ok(())
 }

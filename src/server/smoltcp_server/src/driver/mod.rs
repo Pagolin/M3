@@ -15,15 +15,11 @@
  */
 
 /// Conditional include of the driver
-#[cfg(target_vendor = "host")]
-#[path = "host/mod.rs"]
-mod inner;
-
 #[cfg(target_vendor = "gem5")]
 #[path = "gem5/mod.rs"]
 mod inner;
 
-#[cfg(target_vendor = "hw")]
+#[cfg(any(target_vendor = "hw", target_vendor = "hw22"))]
 #[path = "hw/mod.rs"]
 mod inner;
 

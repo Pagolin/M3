@@ -13,14 +13,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License version 2 for more details.
  */
-// ffi is the foreign function interface and we need this flag to
-// exclude currently unstable features
-#![feature(core_ffi_c)]
+
 // I mightneed this later for converting &str to c_char* without using std
 //#![feature(slice_internals)]
 
-// for offset_of with unstable_const feature
-#![feature(const_ptr_offset_from)]
+
 #![no_std]
 
 mod loop_lib;
@@ -42,7 +39,7 @@ use core::str;
 // I could probably augment them with the appropriate other definitions 
 use m3::{log, vec, println};
 use m3::col::{BTreeMap, Vec};
-use m3::tiles::Activity;
+use m3::tiles::{OwnActivity, Activity};
 use m3::com::Semaphore;
 
 
@@ -186,8 +183,8 @@ r#"
             let advised_waiting_timeout = iface.poll_delay(timestamp, &sockets);
             // println!("Server: Gonna wait a bit");
             match advised_waiting_timeout {
-                None => Activity::own().sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
-                Some(t) => Activity::own().sleep_for(t.as_m3_duration()).ok(),
+                None => OwnActivity::sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
+                Some(t) => OwnActivity::sleep_for(t.as_m3_duration()).ok(),
             }
         };
     }

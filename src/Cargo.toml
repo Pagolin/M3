@@ -26,6 +26,7 @@ members = [
     "apps/ruststandalone/vmtest",
     "apps/ruststdtest",
     "apps/rustunittests",
+    "apps/smoltcp_client",
     "apps/spammer",
     "kernel",
     "server/crypto/hashmux",
@@ -36,6 +37,7 @@ members = [
     "server/pipes",
     "server/root",
     "server/vterm",
+    "server/smoltcp_server",
 ]
 exclude = [
     "tilemux"

@@ -24,14 +24,17 @@ use m3::{
     com::Semaphore,
     env,
     net::{
-        Endpoint, IpAddr, Port, StreamSocket, StreamSocketArgs,
-        TcpSocket, UdpSocket,
+        Socket, Endpoint, IpAddr, Port, StreamSocketArgs,
+        TcpSocket
     },
     println,
     rc::Rc,
     session::NetworkManager,
     vfs::{BufReader, OpenFlags},
 };
+use m3::tmif::exit;
+
+
 
 use core::str;
 
@@ -42,7 +45,7 @@ const VERBOSE: bool = true;
 fn usage() {
     let name = env::args().next().unwrap();
     println!("Usage: {} tcp <ip> <port> <workload> <repeats>", name);
-    m3::exit(1);
+    exit(1.into());
 }
 
 

@@ -6,8 +6,6 @@ use core::ffi::{c_int, c_char};
 
 const USIZE_LENGTH:usize = 8;
 
-
-
 opaque!{
     /// Opaque handle representing an opened database. The handle is thread-safe.
     pub struct leveldb_t;

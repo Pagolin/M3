@@ -78,6 +78,8 @@ r#"
 "#
     );
     log!(DEBUG, "Running smoltcp smoltcp_server");
+    m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on smoltcp_server");
+
     let mut store = Store::new("kvstore");
 
 
@@ -143,11 +145,11 @@ r#"
         if socket.may_recv() {
             let input = socket.recv(process_octets).unwrap();
             if socket.can_send() && !input.is_empty() {
-                log!(DEBUG,
+                /*log!(DEBUG,
                     "Server Input: {:?} bytes", input.len()
-                );
+                );*/
                 if let Some(outbytes) = store.handle_message(&input){
-                    log!(DEBUG,"Server: got {:?} outbytes ", outbytes.len());
+                    //log!(DEBUG,"Server: got {:?} outbytes ", outbytes.len());
                     // FIXME: Outbytes that don't fit in the sending buffer will be lost.
                     //        We need an intermediate buffer to account for this
 

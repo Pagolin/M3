@@ -31,6 +31,7 @@
                     <dom>
                         <app args="/sbin/smoltcp_server" daemon="1">
                             <serv name="smoltcp_server" />
+                            <sess lname="m3fs" gname="app_m3fs" />
                             <tiles type="nicdev" />
                             <sem name="net" />
                         </app>

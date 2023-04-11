@@ -17,6 +17,8 @@ extern "C" {
     // For now we'll use a default name
     fn leveldb_open_wrapper() -> (*mut leveldb_t, c_int);
     fn leveldb_close(db: *mut leveldb_t);
+    // FIXME: usize != size_t i.e. not necessarily the same so I should rather use libc::size_t
+    fn execute(db: *mut leveldb_t, package_buffer: *const u8, package_size: usize) -> usize;
 }
 
 
@@ -137,15 +139,15 @@ impl Store {
 
 
     fn answer(&mut self, mut operation_bytes: Vec<u8>) -> Vec<u8>{
-	// ToDo: This used to be where we deserialize and ask the HashMap
-	//       Now we need to replace this code with a call to LevelDB
-        let mut count_and_bytes = operation_bytes
-            .len()
+        let answer_length = unsafe {
+            execute(self.data.ptr, operation_bytes.as_mut_ptr(), operation_bytes.len())
+        };
+        println!("Call worked. Answer length is {:?}", answer_length);
+        let mut count_and_bytes = answer_length
             .to_be_bytes()
             .to_vec();
-        count_and_bytes.append(&mut operation_bytes);
-        //let x = unsafe {test_function(23)};
-        //println!("Call worked x is {:?}", x);
+        let mut bytes = vec![0; answer_length];
+        count_and_bytes.append(&mut bytes);
         return count_and_bytes
     }
 

@@ -22,9 +22,7 @@
 #include <sstream>
 #include <endian.h>
 
-//using namespace m3;
-
-#define DEBUG 0
+#define DEBUG 2
 
 const char* dbName = "tmp/defaultDB";
 
@@ -104,146 +102,20 @@ std::pair<leveldb_t*, int> leveldb_open_wrapper() {
     result->rep = dbptr;
     return {result, x};
 }
-/*
-Executor::Executor(const char *db)
-    : _t_insert(),
-      _t_read(),
-      _t_scan(),
-      _t_update(),
-      _n_insert(),
-      _n_read(),
-      _n_scan(),
-      _n_update() {
-    leveldb::Options options;
-    options.create_if_missing = true;
-    leveldb::Status status = leveldb::DB::Open(options, db, &_db);
-    if(!status.ok())
-        VTHROW(m3::Errors::INV_ARGS,
-               "Unable to open/create DB '" << db << "': " << status.ToString().c_str());
-}
 
-Executor::~Executor() {
-    delete _db;
-}
-
-void Executor::reset_stats() {
-    _n_insert = 0;
-    _n_read = 0;
-    _n_scan = 0;
-    _n_update = 0;
-    _t_insert = m3::TimeDuration::ZERO;
-    _t_read = m3::TimeDuration::ZERO;
-    _t_scan = m3::TimeDuration::ZERO;
-    _t_update = m3::TimeDuration::ZERO;
-}
-
-void Executor::print_stats(size_t num_ops) {
-    m3::TimeDuration avg;
-    m3::cout << "    Key Value Database Timings for " << num_ops << " operations:\n";
-
-    avg = _n_insert > 0 ? _t_insert / _n_insert : m3::TimeDuration::ZERO;
-    m3::cout << "        Insert: " << _t_insert << ",\t avg_time: " << avg << "\n",
-
-        avg = _n_read > 0 ? _t_read / _n_read : m3::TimeDuration::ZERO;
-    m3::cout << "        Read:   " << _t_read << ",\t avg_time: " << avg << "\n";
-
-    avg = _n_update > 0 ? _t_update / _n_update : m3::TimeDuration::ZERO;
-    m3::cout << "        Update: " << _t_update << ",\t avg_time: " << avg << "\n";
-
-    avg = _n_scan > 0 ? _t_scan / _n_scan : m3::TimeDuration::ZERO;
-    m3::cout << "        Scan:   " << _t_scan << ",\t avg_time: " << avg << "\n";
-}
-
-
-size_t Executor::execute(uint8_t *package_buffer, size_t package_size) {
-// We've handled the cases of missing length and
-// to few request bytes in Rust already when we call this function
-// Also in the original test case the response is just an array of 0's in the
-// length of the DB response
-// So to mimic this it is sufficient to declare, fill and handle the Package inside this function
-// and only return a length
-    Package pkg;
-    if(from_bytes(package_buffer, package_size, pkg) == 0) {
-        m3::cout << "Parsing Package from bytes didn't work";
-        return 0;
-    }
-    size_t res_bytes = inner_execute(pkg);
-    return res_bytes;
-}
-
-size_t Executor::inner_execute(Package &pkg) {
-#if DEBUG > 0
-    m3::cout << "Executing operation " << (int)pkg.op << " with table " << (int)pkg.table;
-    m3::cout << "  num_kvs=" << (int)pkg.num_kvs << ", key=" << pkg.key;
-    m3::cout << ", scan_length=" << pkg.scan_length << "\n";
-#endif
-#if DEBUG > 1
-    for(auto &pair : pkg.kv_pairs)
-        m3::cout << "  key='field" << pair.first.c_str() << "' val='" << pair.second.c_str()
-                 << "'\n";
-#endif
-
-    switch(pkg.op) {
-        case Operation::INSERT: {
-            auto start = m3::TimeInstant::now();
-            exec_insert(pkg);
-            _t_insert += m3::TimeInstant::now().duration_since(start);
-            _n_insert++;
-            return 4;
-        }
-
-        case Operation::UPDATE: {
-            auto start = m3::TimeInstant::now();
-            exec_insert(pkg);
-            _t_update += m3::TimeInstant::now().duration_since(start);
-            _n_update++;
-            return 4;
-        }
-
-        case Operation::READ: {
-            auto start = m3::TimeInstant::now();
-            auto vals = exec_read(pkg);
-            size_t bytes = 0;
-            for(auto &pair : vals) {
-                bytes += pair.first.size() + pair.second.size();
-#if DEBUG > 1
-                m3::cout << "  found '" << pair.first.c_str() << "' -> '" << pair.second.c_str()
-                         << "'\n";
-#endif
-            }
-            _t_read += m3::TimeInstant::now().duration_since(start);
-            _n_read++;
-            return bytes;
-        }
-
-        case Operation::SCAN: {
-            auto start = m3::TimeInstant::now();
-            auto vals = exec_scan(pkg);
-            size_t bytes = 0;
-            for(auto &pair : vals) {
-                bytes += pair.first.size() + pair.second.size();
-#if DEBUG > 1
-                m3::cout << "  found '" << pair.first.c_str() << "' -> '" << pair.second.c_str()
-                         << "'\n";
-#endif
-            }
-            _t_scan += m3::TimeInstant::now().duration_since(start);
-            _n_scan++;
-            return bytes;
-        }
-
-        case Operation::DELETE: m3::cerr << "DELETE is not supported\n"; return 4;
-    }
-
-    return 0;
-}
-
-static std::string pack_key(uint64_t key, const std::string &field, const char *prefix) {
+std::string pack_key(uint64_t key, const std::string &field, const char *prefix) {
     std::ostringstream key_field;
     key_field << key << "/" << prefix << field;
     return key_field.str();
 }
 
+void exec_insert(leveldb_t* db, Package &pkg) {
+    leveldb::WriteOptions writeOptions;
+    for(auto &pair : pkg.kv_pairs) {
+        auto key = pack_key(pkg.key, pair.first, "field");
+        db->rep->Put(writeOptions, key, pair.second);
+    }
+}
 static std::pair<uint64_t, std::string> unpack_key(const std::string &key_field) {
     size_t pos = 0;
     uint64_t key = static_cast<uint64_t>(std::stoll(key_field, &pos));
@@ -251,22 +123,13 @@ static std::pair<uint64_t, std::string> unpack_key(const std::string &key_field)
     return std::make_pair(key, field);
 }
 
-void Executor::exec_insert(Package &pkg) {
-    leveldb::WriteOptions writeOptions;
-    for(auto &pair : pkg.kv_pairs) {
-        auto key = pack_key(pkg.key, pair.first, "field");
-#if DEBUG > 1
-        m3::cerr << "Setting '" << key.c_str() << "' to '" << pair.second.c_str() << "'\n";
-#endif
-        _db->Put(writeOptions, key, pair.second);
-    }
-}
 
-std::vector<std::pair<std::string, std::string>> Executor::exec_read(Package &pkg) {
+
+std::vector<std::pair<std::string, std::string>> exec_read(leveldb_t* db, Package &pkg) {
     std::vector<std::pair<std::string, std::string>> res;
     // If the k,v pairs are empty, this means "all fields" should be read
     if(pkg.kv_pairs.empty()) {
-        leveldb::Iterator *it = _db->NewIterator(leveldb::ReadOptions());
+        leveldb::Iterator *it = db->rep->NewIterator(leveldb::ReadOptions());
         for(it->SeekToFirst(); it->Valid(); it->Next()) {
             std::istringstream is(it->key().ToString());
             uint64_t key;
@@ -282,11 +145,13 @@ std::vector<std::pair<std::string, std::string>> Executor::exec_read(Package &pk
         for(auto &pair : pkg.kv_pairs) {
             auto key = pack_key(pkg.key, pair.first, "");
             std::string value;
-            auto s = _db->Get(leveldb::ReadOptions(), key, &value);
+            auto s = db->rep->Get(leveldb::ReadOptions(), key, &value);
             if(s.ok())
                 res.push_back(std::make_pair(pair.first, value));
             else
-                m3::cerr << "Unable to find key '" << key.c_str() << "'\n";
+                //m3::cerr << "Unable to find key '" << key.c_str() << "'\n";
+                // FIXME: Should I error here and if so how?
+                continue;
         }
     }
     return res;
@@ -302,11 +167,11 @@ static bool take_field(Package &pkg, const std::string &field) {
     return false;
 }
 
-std::vector<std::pair<std::string, std::string>> Executor::exec_scan(Package &pkg) {
+std::vector<std::pair<std::string, std::string>> exec_scan(leveldb_t* db, Package &pkg) {
     std::vector<std::pair<std::string, std::string>> res;
     size_t rem = pkg.scan_length;
     uint64_t last_key = 0;
-    leveldb::Iterator *it = _db->NewIterator(leveldb::ReadOptions());
+    leveldb::Iterator *it = db->rep->NewIterator(leveldb::ReadOptions());
     if(pkg.kv_pairs.size() == 1) {
         auto key = pack_key(pkg.key, pkg.kv_pairs.front().first, "");
         it->Seek(key);
@@ -326,4 +191,67 @@ std::vector<std::pair<std::string, std::string>> Executor::exec_scan(Package &pk
     }
     return res;
 }
+
+size_t inner_execute(leveldb_t* db, Package &pkg) {
+    switch(pkg.op) {
+        case Operation::INSERT: {
+            exec_insert(db, pkg);
+            return 4;
+        }
+
+        case Operation::UPDATE: {
+            exec_insert(db, pkg);
+            return 4;
+        }
+
+        case Operation::READ: {
+            auto vals = exec_read(db, pkg);
+
+            size_t bytes = 0;
+            for(auto &pair : vals) {
+                bytes += pair.first.size() + pair.second.size();
+            }
+            return bytes;
+        }
+
+        case Operation::SCAN: {
+            auto vals = exec_scan(db, pkg);
+            size_t bytes = 0;
+            for(auto &pair : vals) {
+                bytes += pair.first.size() + pair.second.size();
+            }
+            return bytes;
+        }
+
+        case Operation::DELETE: /*m3::cerr << "DELETE is not supported\n";*/ return 23;
+    }
+
+    return 0;
+}
+
+
+size_t execute(leveldb_t* db, uint8_t *package_buffer, size_t package_size) {
+    // We've handled the cases of missing length and
+    // to few request bytes in Rust already when we call this function
+    // Also in the original test case the response is just an array of 0's in the
+    // length of the DB response
+    // So to mimic this it is sufficient to declare, fill and handle the Package inside this function
+    // and only return a length
+    Package pkg;
+    if(from_bytes(package_buffer, package_size, pkg) == 0) {
+        // m3::cout << "Parsing Package from bytes didn't work";
+        return 0;
+    }
+    size_t res_bytes = inner_execute(db, pkg);
+    return res_bytes;
+}
+
+
+/*
+
+
+
+
+
+
 */

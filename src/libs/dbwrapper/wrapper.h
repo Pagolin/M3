@@ -8,15 +8,9 @@
 
 #include "leveldb/db.h"
 // This header file exports c extern C bindings to the library
+// including the leveldb_close(leveldb_t* db) function exported to Rust
 #include "leveldb/c.h"
 #include "leveldb/options.h"
-
-extern "C" {
-
-int test_function(int testin);
-
-// leveldb_t* leveldb_open_wrapper(const char* db);
-std::pair<leveldb_t*, int> leveldb_open_wrapper();
 
 enum Operation {
     INSERT = 1,
@@ -34,34 +28,14 @@ struct Package {
     uint64_t scan_length;
     std::vector<std::pair<std::string, std::string>> kv_pairs;
 };
-/*
-class Executor {
-public:
-    explicit Executor(const char *db);
-    ~Executor();
 
-    size_t execute(uint8_t *package_buffer, size_t package_size);
-    void reset_stats();
-    void print_stats(size_t num_ops);
+extern "C" {
 
-private:
-    size_t inner_execute(Package &pkg);
-    void exec_insert(Package &pkg);
-    std::vector<std::pair<std::string, std::string>> exec_read(Package &pkg);
-    std::vector<std::pair<std::string, std::string>> exec_scan(Package &pkg);
-    void exec_update(Package &pkg);
+int test_function(int testin);
 
-    m3::TimeDuration _t_insert;
-    m3::TimeDuration _t_read;
-    m3::TimeDuration _t_scan;
-    m3::TimeDuration _t_update;
-    uint64_t _n_insert;
-    uint64_t _n_read;
-    uint64_t _n_scan;
-    uint64_t _n_update;
+// leveldb_t* leveldb_open_wrapper(const char* db);
+std::pair<leveldb_t*, int> leveldb_open_wrapper();
 
-    leveldb::DB *_db;
-};
-*/
+size_t execute(leveldb_t* db, uint8_t *package_buffer, size_t package_size);
 
 }

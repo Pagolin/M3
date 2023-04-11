@@ -16,7 +16,7 @@ extern "C" {
 int test_function(int testin);
 
 // leveldb_t* leveldb_open_wrapper(const char* db);
-leveldb_t* leveldb_open_wrapper();
+std::pair<leveldb_t*, int> leveldb_open_wrapper();
 
 enum Operation {
     INSERT = 1,

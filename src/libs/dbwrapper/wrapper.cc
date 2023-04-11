@@ -26,7 +26,8 @@
 
 #define DEBUG 0
 
-const char* dbName = "defaultDB";
+const char* dbName = "tmp/defaultDB";
+
 
 struct leveldb_t {
   leveldb::DB* rep;
@@ -84,7 +85,7 @@ size_t from_bytes(uint8_t *package_buffer, size_t package_size, Package &pkg) {
 }
 
 // leveldb_t* leveldb_open_wrapper(const char* dbname) {
-leveldb_t* leveldb_open_wrapper() {
+std::pair<leveldb_t*, int> leveldb_open_wrapper() {
     // We don't want to handle options outside c/c++
     // but we need to use the leveldb_t struct as interface to rust
     // so here we wrap option handling similar to the executor initialization
@@ -93,15 +94,15 @@ leveldb_t* leveldb_open_wrapper() {
 
     options.create_if_missing = true;
     leveldb::Status status = leveldb::DB::Open(options, dbName, &dbptr);
-
-    //if(!status.ok())
-      //VTHROW(m3::Errors::INV_ARGS,
-        //     "Unable to open/create DB '" << dbName << "': " << status.ToString().c_str());
-
+    bool x = 0;
+    if(!status.ok()){
+      x = 1;
+      //vthrow(Errors::INV_ARGS, "Unable to open/create defaultDB: {}"_cf,
+        //       status.ToString().c_str());
+    }
     leveldb_t* result = new leveldb_t;
     result->rep = dbptr;
-    return result;
-    //return nullptr;
+    return {result, x};
 }
 /*
 Executor::Executor(const char *db)

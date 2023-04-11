@@ -15,7 +15,7 @@ extern "C" {
     fn test_function(testin: c_int) -> c_int;
     //fn leveldb_open_wrapper(db: *const c_char) -> *mut leveldb_t;
     // For now we'll use a default name
-    fn leveldb_open_wrapper() -> *mut leveldb_t;
+    fn leveldb_open_wrapper() -> (*mut leveldb_t, c_int);
     fn leveldb_close(db: *mut leveldb_t);
 }
 
@@ -29,7 +29,13 @@ impl RawDB {
     fn new(name:&str) -> Self {
         //let cname = CStr::new(name).unwrap();
         //let c_chars: *const c_char = cname.as_ptr() as *const c_char;
-        RawDB { ptr: unsafe {leveldb_open_wrapper()}}
+        let (dbptr, indicator) = unsafe {leveldb_open_wrapper()};
+        if indicator != 0 {
+            println!("Creating db failed");
+        } else if indicator == 0 {
+            println!("DB creation successful")
+        }
+        RawDB { ptr :dbptr}
     }
 }
 
@@ -90,8 +96,7 @@ impl Store {
         match optn_new_len {
             // fails => return error
             None => {
-                // For now we do nothing, later this should be an error
-                println!("There was no length. We tell the client to stop");
+                //println!("There was no length. We tell the client to stop");
                 return Some(b"ERROR".to_vec())
             }
             // succeeds => we now how many bytes we need for the next operation
@@ -101,7 +106,7 @@ impl Store {
                 // the operation yet
                 length_bytes = operation_bytes;
                 operation_bytes = length_bytes.split_off(USIZE_LENGTH);
-                println!("Expected operation length is {} and we have {} operation bytes", l, operation_bytes.len());
+                // println!("Expected operation length is {} and we have {} operation bytes", l, operation_bytes.len());
             }
 
         }
@@ -115,16 +120,16 @@ impl Store {
 
             self.unfinished_operation.append(&mut length_bytes);
             self.unfinished_operation.append(&mut operation_bytes);
-            println!("To few bytes for operation. We stored {:?} bytes for later", self.unfinished_operation.len());
+            // println!("To few bytes for operation. We stored {:?} bytes for later", self.unfinished_operation.len());
             // We're done until te next packet arrives
             return None
         } else {
             let mut remainder = operation_bytes.split_off(op_len);
             self.unfinished_operation = remainder;
-            println!("Sufficient bytes for operation.\
+            /*println!("Sufficient bytes for operation.\
                      We process {:?} bytes ,\n and store {:?} bytes for later"
                     , operation_bytes.len()
-                     , self.unfinished_operation.len());
+                     , self.unfinished_operation.len());*/
             let answer = self.answer(operation_bytes);
             Some(answer)
         }
@@ -139,8 +144,8 @@ impl Store {
             .to_be_bytes()
             .to_vec();
         count_and_bytes.append(&mut operation_bytes);
-        let x = unsafe {test_function(23)};
-        println!("Call worked x is {:?}", x);
+        //let x = unsafe {test_function(23)};
+        //println!("Call worked x is {:?}", x);
         return count_and_bytes
     }
 

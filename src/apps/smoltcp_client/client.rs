@@ -20,6 +20,7 @@
 extern crate m3;
 
 use m3::{
+    log,
     col::Vec,
     com::Semaphore,
     env,
@@ -41,7 +42,8 @@ use core::str;
 
 mod importer;
 
-const VERBOSE: bool = false;
+const VERBOSE: bool = true;
+const ERROR_MSG:[u8; 5] = *b"ERROR";
 
 fn usage() {
     let name = env::args().next().unwrap();
@@ -94,10 +96,11 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
         if VERBOSE {
             println!("Sending operation...");
         }
-
+        // Send length info for next request
         socket
             .send(&operation.len().to_be_bytes())
-            .expect("send failed");
+            .expect("send failed");*/
+        // Send next request
         socket.send(&operation).expect("send failed");
 
         if VERBOSE {
@@ -114,9 +117,6 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
             println!("Expecting {} byte response.", resp_len);
         }
 
-        // FIXME: The smoltcp_server will send  ONLY a String "ERROR" iff it can not
-        //        parse a length for a new operation. We need to handle this or the client,
-        //        and hence the Simulation will be stuck in the while rem > 0 loop.
         let mut response = vec![0u8; resp_len as usize];
         let mut rem = resp_len as usize;
         while rem > 0 {
@@ -125,8 +125,14 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
                 .expect("receive response failed");
             rem -= amount;
         }
+
         if VERBOSE {
             println!("Client: Got  {:?} response bytes", response.len());
+        }
+
+        if response == ERROR_MSG {
+            log!(true, "Client received a length encoding error and will end now.");
+            break;
         }
     }
     println!("Client: Will send end Message");

@@ -4,6 +4,7 @@ use core::{str};
 use core::convert::TryFrom;
 
 const USIZE_LENGTH:usize = 8;
+const MAX_PLAUSIBLE_PACKAGE_LENGTH:usize = 3000;
 
 opaque!{
     /// Opaque handle representing an opened database. The handle is thread-safe.
@@ -100,8 +101,11 @@ impl Store {
         match optn_new_len {
             // fails => return error
             None => {
-                //println!("There was no length. We tell the client to stop");
-                return Some(b"ERROR".to_vec())
+                println!("There was no length. We tell the client to stop");
+                let mut error_msg = b"ERROR".to_vec();
+                let mut header_and_msg = error_msg.len().to_be_bytes().to_vec();
+                header_and_msg.append(&mut error_msg);
+                return Some(header_and_msg)
             }
             // succeeds => we now how many bytes we need for the next operation
             Some(l) => {
@@ -110,7 +114,6 @@ impl Store {
                 // the operation yet
                 length_bytes = operation_bytes;
                 operation_bytes = length_bytes.split_off(USIZE_LENGTH);
-                // println!("Expected operation length is {} and we have {} operation bytes", l, operation_bytes.len());
             }
 
         }
@@ -154,7 +157,6 @@ impl Store {
         let answer_length = unsafe {
             execute(self.data.ptr, operation_bytes.as_mut_ptr(), operation_bytes.len())
         };
-        //println!("Call worked. Answer length is {:?}", answer_length);
         let mut count_and_bytes = answer_length
             .to_be_bytes()
             .to_vec();
@@ -171,6 +173,11 @@ impl Store {
         let (len_bytes, _rest) = input_bytes.split_at(USIZE_LENGTH);
         let new_len = usize::from_be_bytes(
             <[u8;USIZE_LENGTH]>::try_from(len_bytes).expect("Failed to convert length byte array"));
+        // We need a plausibility check here as anything that can be interpreted as a usize will
+        // be, even if it was a sequence of special characters
+        if new_len > MAX_PLAUSIBLE_PACKAGE_LENGTH{
+            return None
+        }
         Some(new_len)
     }
 }

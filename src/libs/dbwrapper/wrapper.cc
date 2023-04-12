@@ -31,11 +31,6 @@ struct leveldb_t {
   leveldb::DB* rep;
 };
 
-int test_function(int testin) {
-    int out = testin + 3;
-    return out;
-}
-
 uint64_t read_u64(const uint8_t *bytes) {
     uint64_t res = 0;
 #if __BIG_ENDIAN
@@ -82,25 +77,28 @@ size_t from_bytes(uint8_t *package_buffer, size_t package_size, Package &pkg) {
     return pos;
 }
 
-// leveldb_t* leveldb_open_wrapper(const char* dbname) {
-std::pair<leveldb_t*, int> leveldb_open_wrapper() {
+
+DBResult leveldb_open_wrapper() {
     // We don't want to handle options outside c/c++
     // but we need to use the leveldb_t struct as interface to rust
     // so here we wrap option handling similar to the executor initialization
     leveldb::DB* dbptr;
     leveldb::Options options;
+    DBResult open_result;
 
     options.create_if_missing = true;
     leveldb::Status status = leveldb::DB::Open(options, dbName, &dbptr);
-    bool x = 0;
+    bool success = true;
     if(!status.ok()){
-      x = 1;
+      success = false;
       //vthrow(Errors::INV_ARGS, "Unable to open/create defaultDB: {}"_cf,
         //       status.ToString().c_str());
     }
     leveldb_t* result = new leveldb_t;
     result->rep = dbptr;
-    return {result, x};
+    open_result.db = result;
+    open_result.success = success;
+    return open_result;
 }
 
 std::string pack_key(uint64_t key, const std::string &field, const char *prefix) {

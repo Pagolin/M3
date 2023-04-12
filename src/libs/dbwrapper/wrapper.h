@@ -12,6 +12,11 @@
 #include "leveldb/c.h"
 #include "leveldb/options.h"
 
+typedef struct DBResult {
+    leveldb_t* db;
+    bool success;
+} DBResult;
+
 enum Operation {
     INSERT = 1,
     DELETE = 2,
@@ -31,10 +36,8 @@ struct Package {
 
 extern "C" {
 
-int test_function(int testin);
-
 // leveldb_t* leveldb_open_wrapper(const char* db);
-std::pair<leveldb_t*, int> leveldb_open_wrapper();
+DBResult leveldb_open_wrapper();
 
 size_t execute(leveldb_t* db, uint8_t *package_buffer, size_t package_size);
 

@@ -1,8 +1,7 @@
-use m3::col::{String, Vec, ToString};
+use m3::col::Vec;
 use m3::{vec, log, println};
-use core::{str, array};
+use core::{str};
 use core::convert::TryFrom;
-use core::ffi::{c_int, c_char};
 
 const USIZE_LENGTH:usize = 8;
 
@@ -11,11 +10,14 @@ opaque!{
     pub struct leveldb_t;
 }
 
+#[repr(C)]
+pub struct DBResult {
+    pub db: *mut leveldb_t,
+    pub success: bool,
+}
 extern "C" {
-    fn test_function(testin: c_int) -> c_int;
-    //fn leveldb_open_wrapper(db: *const c_char) -> *mut leveldb_t;
-    // For now we'll use a default name
-    fn leveldb_open_wrapper() -> (*mut leveldb_t, c_int);
+    // For now we'll use a default name defined in c++
+    fn leveldb_open_wrapper() -> DBResult;
     fn leveldb_close(db: *mut leveldb_t);
     // FIXME: usize != size_t i.e. not necessarily the same so I should rather use libc::size_t
     fn execute(db: *mut leveldb_t, package_buffer: *const u8, package_size: usize) -> usize;
@@ -28,16 +30,15 @@ struct RawDB {
 }
 
 impl RawDB {
-    fn new(name:&str) -> Self {
-        //let cname = CStr::new(name).unwrap();
-        //let c_chars: *const c_char = cname.as_ptr() as *const c_char;
-        let (dbptr, indicator) = unsafe {leveldb_open_wrapper()};
-        if indicator != 0 {
+    fn new(_name:&str) -> Self {
+        let DBResult{ db, success } = unsafe {leveldb_open_wrapper()};
+        if !success {
+            // Todo: End simulation upon failure
             println!("Creating db failed");
-        } else if indicator == 0 {
-            println!("DB creation successful")
+        } else {
+            println!("DB creation successful yey")
         }
-        RawDB { ptr :dbptr}
+        RawDB { ptr :db}
     }
 }
 
@@ -48,6 +49,7 @@ impl Drop for RawDB {
         }
     }
 }
+
 
 
 pub struct Store {
@@ -113,20 +115,30 @@ impl Store {
 
         }
 
+        if op_len == 6 {
+            if let Ok("ENDNOW") = str::from_utf8(&operation_bytes){
+                // ToDo: This makes a lot more sense in the original scenario, where both
+                //  the server and the client where 'apps', meaning both have to end to end the
+                //  simulation. Mow this isn't needed any more, because only the client is an app
+                //  so when it ends the simulation also should. However we still get those
+                //  errors from m3 and the simulation does NOT stop if I don't close the socket
+                //  WHY?!
+                println!("Should end");
+            }
+        }
 
         // try to get 'remaining_op_len' bytes from the rest of the packet
         if operation_bytes.len() < op_len {
             // We will not get the whole operation from this packet
-            // so we store the lenght bytes and the operation bytes and
+            // so we store the length bytes and the operation bytes and
             // start over next time
-
             self.unfinished_operation.append(&mut length_bytes);
             self.unfinished_operation.append(&mut operation_bytes);
             // println!("To few bytes for operation. We stored {:?} bytes for later", self.unfinished_operation.len());
             // We're done until te next packet arrives
             return None
         } else {
-            let mut remainder = operation_bytes.split_off(op_len);
+            let remainder = operation_bytes.split_off(op_len);
             self.unfinished_operation = remainder;
             /*println!("Sufficient bytes for operation.\
                      We process {:?} bytes ,\n and store {:?} bytes for later"
@@ -142,7 +154,7 @@ impl Store {
         let answer_length = unsafe {
             execute(self.data.ptr, operation_bytes.as_mut_ptr(), operation_bytes.len())
         };
-        println!("Call worked. Answer length is {:?}", answer_length);
+        //println!("Call worked. Answer length is {:?}", answer_length);
         let mut count_and_bytes = answer_length
             .to_be_bytes()
             .to_vec();

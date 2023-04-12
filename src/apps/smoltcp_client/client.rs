@@ -27,6 +27,7 @@ use m3::{
         Socket, Endpoint, IpAddr, Port, StreamSocketArgs,
         TcpSocket
     },
+    errors::{Error},
     println,
     rc::Rc,
     session::NetworkManager,
@@ -40,7 +41,7 @@ use core::str;
 
 mod importer;
 
-const VERBOSE: bool = true;
+const VERBOSE: bool = false;
 
 fn usage() {
     let name = env::args().next().unwrap();
@@ -50,7 +51,7 @@ fn usage() {
 
 
 
-fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats: u32) {
+fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats: u32) {
 
     // Mount fs to load binary data
     m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on smoltcp_server");
@@ -128,10 +129,15 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
             println!("Client: Got  {:?} response bytes", response.len());
         }
     }
+    println!("Client: Will send end Message");
+
+    let end_msg = b"ENDNOW";
+    socket.send(&end_msg.len().to_be_bytes()).unwrap();
+    socket.send(end_msg).unwrap();
 }
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let args: Vec<_> = env::args().collect();
     if args.len() < 2 {
         println!("To few args");
@@ -149,5 +155,5 @@ pub fn main() -> i32 {
     let port = args[3].parse::<Port>().expect("Failed to parse port");
     let repeats = args[5].parse::<u32>().expect("Failed to parse repeats");
     tcp_client(nm, ip, port, args[4], repeats);
-    return 0
+    Ok(())
 }

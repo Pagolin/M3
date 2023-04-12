@@ -19,7 +19,8 @@
 
 
 #![no_std]
-
+#![allow(dead_code)]
+#![allow(unused_imports)]
 mod loop_lib;
 mod driver;
 
@@ -32,21 +33,20 @@ extern crate ffi_opaque;
 use crate::driver::*;
 use loop_lib::store::{Store};
 
-use core::str;
 // The rust API for m3 basically defines one logging macro we can use here 
 // replacing debug!, info! and error!
 // However they are trivially defined in M3/src/libs/rust/base/src/io/mod.rs so 
 // I could probably augment them with the appropriate other definitions 
 use m3::{log, vec, println};
 use m3::col::{BTreeMap, Vec};
-use m3::tiles::{OwnActivity, Activity};
+use m3::tiles::OwnActivity;
 use m3::com::Semaphore;
 
 
-use local_smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
+use local_smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use local_smoltcp::phy::{Device, Medium};
 use local_smoltcp::socket::{tcp};
-use local_smoltcp::time::{Duration, Instant};
+use local_smoltcp::time::Instant;
 use local_smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
 // m3's log takes a log-level-bool parameter
@@ -106,9 +106,6 @@ r#"
     let medium = device.capabilities().medium;
     let mut builder = InterfaceBuilder::new(vec![]).ip_addrs(ip_addrs);
 
-
-    let mut out_packet_buffer = [0u8; 1060];
-
     if medium == Medium::Ethernet {
         builder = builder.hardware_addr(ethernet_addr.into()).neighbor_cache(neighbor_cache);
     }
@@ -129,7 +126,7 @@ r#"
             }
         }
 
-        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+        let socket = sockets.get_mut::<tcp::Socket<'_>>(tcp_handle);
         if !socket.is_open() {
             socket.listen(6969).unwrap();
         }
@@ -137,7 +134,7 @@ r#"
         if !semaphore_set {
             // The client is attached to the same semaphore and will only try to send
             // once the smoltcp_server listens
-            Semaphore::attach("net").unwrap().up();
+            let _sem_r = Semaphore::attach("net").unwrap().up();
             semaphore_set = true;
         }
 
@@ -149,10 +146,8 @@ r#"
                     "Server Input: {:?} bytes", input.len()
                 );*/
                 if let Some(outbytes) = store.handle_message(&input){
-                    //log!(DEBUG,"Server: got {:?} outbytes ", outbytes.len());
                     // FIXME: Outbytes that don't fit in the sending buffer will be lost.
                     //        We need an intermediate buffer to account for this
-
                     socket.send_slice(&outbytes[..]).unwrap();
                 }
             }

@@ -32,17 +32,15 @@ use m3::{
     println,
     rc::Rc,
     session::NetworkManager,
+    time::TimeInstant,
     vfs::{BufReader, OpenFlags},
 };
 use m3::tmif::exit;
-
-
-
 use core::str;
 
 mod importer;
 
-const VERBOSE: bool = true;
+const VERBOSE: bool = false;
 const ERROR_MSG:[u8; 5] = *b"ERROR";
 
 fn usage() {
@@ -89,6 +87,20 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
     let mut workload_buffer = BufReader::new(workload);
     let workload_header = importer::WorkloadHeader::load_from_file(&mut workload_buffer);
 
+    let start_time = TimeInstant::now();
+    /*
+        Concerning performance counting we have the problem that operations are only parsed in c++
+        meaning that here we have no idea if a request is READ/SCAN/INSERT/UPDATE.
+        However we also don't care to much for the DB performance, but rather for the server
+        performance as w whole. So it is sufficient to keep statics about the sizes of
+        requests processed. The DB will answer with 0, 4 or > 4 bytes for failure,
+        success of INSERT/UPDATE, and data from READ/SCAN respectively. SO for now we use
+        the categories 0, 4, >4 for 'bookkeeping'
+    */
+    let mut fails = 0;
+    let mut insert_succ = 0;
+    let mut retrieve_succ = 0;
+
     for _ in 0..workload_header.number_of_operations {
         let operation = importer::Package::load_as_bytes(&mut workload_buffer);
         debug_assert!(importer::Package::from_bytes(&operation).is_ok());
@@ -99,7 +111,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
         // Send length info for next request
         socket
             .send(&operation.len().to_be_bytes())
-            .expect("send failed");*/
+            .expect("send failed");
         // Send next request
         socket.send(&operation).expect("send failed");
 
@@ -134,7 +146,21 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
             log!(true, "Client received a length encoding error and will end now.");
             break;
         }
+
+        match response.len() {
+            0 => fails+=1,
+            4 => insert_succ +=1,
+            _ => retrieve_succ += 1,
+        }
     }
+    let time_taken = TimeInstant::now() - start_time;
+    println!(
+    "Statistik:\n \
+        Failures: {:?}\n \
+        Successful Writes: {:?}\n \
+        Successful Reads: {:?}\n \
+        Total Time: {:?}",
+    fails, insert_succ, retrieve_succ, time_taken);
     println!("Client: Will send end Message");
 
     let end_msg = b"ENDNOW";

@@ -314,7 +314,7 @@ impl HardwareAddress {
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl core::fmt::Display for HardwareAddress {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             #[cfg(feature = "medium-ethernet")]
             HardwareAddress::Ethernet(addr) => write!(f, "{}", addr),
@@ -406,7 +406,7 @@ impl RawHardwareAddress {
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl core::fmt::Display for RawHardwareAddress {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for (i, &b) in self.as_bytes().iter().enumerate() {
             if i != 0 {
                 write!(f, ":")?;

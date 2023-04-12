@@ -278,7 +278,7 @@ impl Repr {
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Cannot use Repr::parse because we don't have the IP addresses.
         write!(
             f,
@@ -291,7 +291,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 }
 
 impl fmt::Display for Repr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "UDP src={} dst={}", self.src_port, self.dst_port)
     }
 }
@@ -301,7 +301,7 @@ use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {
@@ -394,7 +394,7 @@ mod test {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn packet_repr() -> Repr {
+    fn packet_repr() -> Repr<'_> {
         Repr {
             src_port: 48896,
             dst_port: 53,

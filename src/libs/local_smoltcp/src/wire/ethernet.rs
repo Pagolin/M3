@@ -13,7 +13,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for EtherType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             EtherType::Ipv4 => write!(f, "IPv4"),
             EtherType::Ipv6 => write!(f, "IPv6"),
@@ -69,7 +69,7 @@ impl Address {
 }
 
 impl fmt::Display for Address {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let bytes = self.0;
         write!(
             f,
@@ -210,7 +210,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Frame<T> {
 }
 
 impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "EthernetII src={} dst={} type={}",
@@ -226,7 +226,7 @@ use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         let frame = match Frame::new_checked(buffer) {

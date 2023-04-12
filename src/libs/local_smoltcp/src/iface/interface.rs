@@ -61,6 +61,7 @@ impl TxToken for LocalTxToken {
     }
 }
 impl LocalTxToken {
+    #[allow(unused)]
     fn get(&self) -> Vec<u8> {
         let buffer = self.buffer.take();
         buffer
@@ -716,7 +717,7 @@ pub(crate) enum IpPacketOwned {
 
 
 impl  IpPacketOwned {
-    pub(crate) fn to_ip_packet(&self) -> IpPacket {
+    pub(crate) fn to_ip_packet(&self) -> IpPacket<'_> {
         match self {
             IpPacketOwned::Tcp((ip_repr, tcp_repr_p)) =>
                 IpPacket::Tcp((ip_repr.clone(), tcp_repr_p.to()))
@@ -1169,7 +1170,7 @@ impl<'a> Interface<'a> {
                     // would add another loop betweein components so I'll keep it simpler
                     // for now.
                     let handle = SocketHandle::from_index(0);
-                    let socket = self.get_mut::<tcp::Socket>(handle);
+                    let socket = self.get_mut::<tcp::Socket<'_>>(handle);
                     if !socket.is_open() {
                         socket.listen(6969).unwrap();
                     }
@@ -1196,8 +1197,8 @@ impl<'a> Interface<'a> {
             InterfaceCall::AnswerToSocket(mut anwers) => {
                 // actually we're sure at this point that there is an answer
                 if let Some((handle, answer)) = anwers.pop(){
-                    let socket = self.get_mut::<tcp::Socket>(handle);
-                    socket.send_slice(&answer);
+                    let socket = self.get_mut::<tcp::Socket<'_>>(handle);
+                    let _res = socket.send_slice(&answer);
                 }
                 // before we poll again we need to wait, we need to do it
                 // in the main scope and we need to aske the device for it's
@@ -1425,7 +1426,7 @@ impl<'a> Interface<'a> {
     /// indicates whether an initial immediate announcement has been sent.
     pub fn join_multicast_group<D, T: Into<IpAddress>>(
         &mut self,
-        device: &mut D,
+        _device: &mut D,
         addr: T,
         timestamp: Instant,
     ) -> Result<bool>
@@ -1467,7 +1468,7 @@ impl<'a> Interface<'a> {
     /// indicates whether an immediate leave packet has been sent.
     pub fn leave_multicast_group<D, T: Into<IpAddress>>(
         &mut self,
-        device: &mut D,
+        _device: &mut D,
         addr: T,
         timestamp: Instant,
     ) -> Result<bool>
@@ -1760,7 +1761,7 @@ impl<'a> Interface<'a> {
 
             let mut neighbor_addr = None;
 
-            let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
+            let mut respond = |inner: &mut InterfaceInner<'_>, response: IpPacket<'_>| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
                 let t = device.transmit().ok_or_else(|| {
                     net_debug!("failed to transmit IP: {}", Error::Exhausted);
@@ -1956,7 +1957,7 @@ impl<'a> InterfaceInner<'a> {
     #[allow(unused)] // unused depending on whether we use the Ohua version
     pub(crate) fn dispatch_local(
         &mut self,
-        packet: IpPacket,
+        packet: IpPacket<'_>,
         _out_packet: Option<&mut OutPackets<'_>>,
     ) -> Result<(Vec<u8>, Instant)> {
         let mut buffer = Rc::new(RefCell::new(vec![]));
@@ -2185,7 +2186,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "medium-ethernet")]
     fn process_ethernet<'frame, T: AsRef<[u8]>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         frame: &'frame T,
         _fragments: &'frame mut FragmentsBuffer<'a>,
     ) -> Option<EthernetPacket<'frame>> {
@@ -2228,7 +2229,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "medium-ip")]
     fn process_ip<'frame, T: AsRef<[u8]>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ip_payload: &'frame T,
         _fragments: &'frame mut FragmentsBuffer<'a>,
     ) -> Option<IpPacket<'frame>> {
@@ -2258,7 +2259,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "medium-ieee802154")]
     fn process_ieee802154<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         sixlowpan_payload: &'payload T,
         _fragments: &'output mut FragmentsBuffer<'a>,
     ) -> Option<IpPacket<'output>> {
@@ -2300,7 +2301,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-sixlowpan")]
     fn process_sixlowpan<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
         _fragments: Option<(
@@ -2589,7 +2590,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "socket-raw")]
     fn raw_socket_filter<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ip_repr: &IpRepr,
         ip_payload: &'frame [u8],
     ) -> bool {
@@ -2611,7 +2612,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_ipv6<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ipv6_packet: &Ipv6Packet<&'frame T>,
     ) -> Option<IpPacket<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
@@ -2643,7 +2644,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_nxt_hdr<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ipv6_repr: Ipv6Repr,
         nxt_hdr: IpProtocol,
         handled_by_raw_socket: bool,
@@ -2691,7 +2692,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv4")]
     fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ipv4_packet: &Ipv4Packet<&'payload T>,
         _fragments: Option<&'output mut PacketAssemblerSet<'a, Ipv4FragKey>>,
     ) -> Option<IpPacket<'output>> {
@@ -2935,7 +2936,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_icmpv6<'frame>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &mut SocketSet<'_>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
@@ -3081,7 +3082,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_hopbyhop<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
@@ -3119,7 +3120,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv4")]
     fn process_icmpv4<'frame>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &mut SocketSet<'_>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
@@ -3239,7 +3240,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
     fn process_udp<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ip_repr: IpRepr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
@@ -3315,7 +3316,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "socket-tcp")]
     fn process_tcp<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'_>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
@@ -3349,7 +3350,7 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "medium-ethernet")]
-    fn dispatch<Tx>(&mut self, tx_token: Tx, packet: EthernetPacket) -> Result<()>
+    fn dispatch<Tx>(&mut self, tx_token: Tx, packet: EthernetPacket<'_>) -> Result<()>
     where
         Tx: TxToken,
     {
@@ -3593,7 +3594,7 @@ impl<'a> InterfaceInner<'a> {
     fn dispatch_ip<Tx: TxToken>(
         &mut self,
         tx_token: Tx,
-        packet: IpPacket,
+        packet: IpPacket<'_>,
         _out_packet: Option<&mut OutPackets<'_>>,
     ) -> Result<()> {
         let ip_repr = packet.ip_repr();
@@ -3676,7 +3677,7 @@ impl<'a> InterfaceInner<'a> {
         ll_dst_a: Ieee802154Address,
         ip_repr: &IpRepr,
         tx_token: Tx,
-        packet: IpPacket,
+        packet: IpPacket<'_>,
         _out_packet: Option<&mut OutPackets>,
     ) -> Result<()> {
         // We first need to convert the IPv6 packet to a 6LoWPAN compressed packet.

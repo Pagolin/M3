@@ -38,7 +38,7 @@ mod field {
 }
 
 impl fmt::Display for Message {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Message::MembershipQuery => write!(f, "membership query"),
             Message::MembershipReportV2 => write!(f, "version 2 membership report"),
@@ -322,7 +322,7 @@ fn duration_to_max_resp_code(duration: Duration) -> u8 {
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => write!(f, "IGMP ({})", err),
@@ -331,7 +331,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 }
 
 impl fmt::Display for Repr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Repr::MembershipQuery {
                 max_resp_time,
@@ -362,7 +362,7 @@ use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {

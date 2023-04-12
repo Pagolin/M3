@@ -146,7 +146,7 @@ impl From<Instant> for ::std::time::SystemTime {
 }
 
 impl fmt::Display for Instant {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}s", self.secs(), self.millis())
     }
 }
@@ -249,7 +249,7 @@ impl Duration {
 }
 
 impl fmt::Display for Duration {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{:03}s", self.secs(), self.millis())
     }
 }

@@ -48,7 +48,7 @@ impl PrettyIndent {
     }
 
     /// Increase indentation level.
-    pub fn increase(&mut self, f: &mut fmt::Formatter) -> fmt::Result {
+    pub fn increase(&mut self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f)?;
         self.level += 1;
         Ok(())
@@ -56,7 +56,7 @@ impl PrettyIndent {
 }
 
 impl fmt::Display for PrettyIndent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.level == 0 {
             write!(f, "{}", self.prefix)
         } else {
@@ -74,7 +74,7 @@ pub trait PrettyPrint {
     /// be truncated, and so it might not be possible to create the packet wrapper.
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        fmt: &mut fmt::Formatter,
+        fmt: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result;
 }
@@ -109,7 +109,7 @@ impl<'a, T: PrettyPrint + AsRef<[u8]>> PrettyPrinter<'a, T> {
 }
 
 impl<'a, T: PrettyPrint> fmt::Display for PrettyPrinter<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         T::pretty_print(&self.buffer, f, &mut PrettyIndent::new(self.prefix))
     }
 }

@@ -14,12 +14,11 @@ use crate::{
 /// device.
 pub struct Tracer<D: for<'a> Device<'a>> {
     inner: D,
-    writer: fn(Instant, Packet),
-}
+    writer: fn(Instant, Packet<'_>),}
 
 impl<D: for<'a> Device<'a>> Tracer<D> {
     /// Create a tracer device.
-    pub fn new(inner: D, writer: fn(timestamp: Instant, packet: Packet)) -> Tracer<D> {
+    pub fn new(inner: D, writer: fn(timestamp: Instant, packet: Packet<'_>)) -> Tracer<D> {
         Tracer { inner, writer }
     }
 
@@ -98,8 +97,7 @@ where
 #[doc(hidden)]
 pub struct RxToken<Rx: phy::RxToken> {
     token: Rx,
-    writer: fn(Instant, Packet),
-    medium: Medium,
+    writer: fn(Instant, Packet<'_>),    medium: Medium,
 }
 
 impl<Rx: phy::RxToken> phy::RxToken for RxToken<Rx> {
@@ -129,8 +127,7 @@ impl<Rx: phy::RxToken> phy::RxToken for RxToken<Rx> {
 #[doc(hidden)]
 pub struct TxToken<Tx: phy::TxToken> {
     token: Tx,
-    writer: fn(Instant, Packet),
-    medium: Medium,
+    writer: fn(Instant, Packet<'_>),    medium: Medium,
 }
 
 impl<Tx: phy::TxToken> phy::TxToken for TxToken<Tx> {
@@ -165,7 +162,7 @@ pub struct Packet<'a> {
 }
 
 impl<'a> fmt::Display for Packet<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut indent = PrettyIndent::new(self.prefix);
         match self.medium {
             #[cfg(feature = "medium-ethernet")]

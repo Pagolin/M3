@@ -246,7 +246,7 @@ impl<'a> Socket<'a> {
         self.ignore_naks = ignore_naks;
     }
 
-    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &mut Context<'_>) -> PollAt {
         let t = match &self.state {
             ClientState::Discovering(state) => state.retry_at,
             ClientState::Requesting(state) => state.retry_at,
@@ -257,7 +257,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn process(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         ip_repr: &Ipv4Repr,
         repr: &UdpRepr,
         payload: &[u8],
@@ -444,18 +444,18 @@ impl<'a> Socket<'a> {
     }
 
     #[cfg(not(test))]
-    fn random_transaction_id(cx: &mut Context) -> u32 {
+    fn random_transaction_id(cx: &mut Context<'_>) -> u32 {
         cx.rand().rand_u32()
     }
 
     #[cfg(test)]
-    fn random_transaction_id(_cx: &mut Context) -> u32 {
+    fn random_transaction_id(_cx: &mut Context<'_>) -> u32 {
         0x12345678
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context<'_>, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<(), E>,
+        F: FnOnce(&mut Context<'_>, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<(), E>,
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
@@ -679,7 +679,7 @@ mod test {
 
     struct TestSocket {
         socket: Socket<'static>,
-        cx: Context<'static>,
+        cx:Context<'static>,
     }
 
     impl Deref for TestSocket {
@@ -918,7 +918,7 @@ mod test {
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         TestSocket {
             socket: s,
-            cx: Context::mock(),
+            cx:Context<'_>::mock(),
         }
     }
 

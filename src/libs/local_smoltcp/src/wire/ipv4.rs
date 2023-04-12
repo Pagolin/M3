@@ -118,7 +118,7 @@ impl From<Address> for ::std::net::Ipv4Addr {
 }
 
 impl fmt::Display for Address {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let bytes = self.0;
         write!(f, "{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3])
     }
@@ -126,7 +126,7 @@ impl fmt::Display for Address {
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for Address {
-    fn format(&self, f: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter<'_>) {
         defmt::write!(
             f,
             "{=u8}.{=u8}.{=u8}.{=u8}",
@@ -259,14 +259,14 @@ impl Cidr {
 }
 
 impl fmt::Display for Cidr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.address, self.prefix_len)
     }
 }
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for Cidr {
-    fn format(&self, f: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter<'_>) {
         defmt::write!(f, "{:?}/{=u8}", self.address, self.prefix_len);
     }
 }
@@ -693,7 +693,7 @@ impl Repr {
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match Repr::parse(self, &ChecksumCapabilities::ignored()) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
@@ -738,7 +738,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 }
 
 impl fmt::Display for Repr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "IPv4 src={} dst={} proto={}",
@@ -752,7 +752,7 @@ use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         use crate::wire::ip::checksum::format_checksum;
@@ -873,7 +873,7 @@ mod test {
 
     static REPR_PAYLOAD_BYTES: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
 
-    fn packet_repr() -> Repr {
+    fn packet_repr() -> Repr<'_> {
         Repr {
             src_addr: Address([0x11, 0x12, 0x13, 0x14]),
             dst_addr: Address([0x21, 0x22, 0x23, 0x24]),

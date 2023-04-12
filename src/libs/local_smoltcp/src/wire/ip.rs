@@ -35,7 +35,7 @@ impl Version {
 }
 
 impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             #[cfg(feature = "proto-ipv4")]
             Version::Ipv4 => write!(f, "IPv4"),
@@ -62,7 +62,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for Protocol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Protocol::HopByHop => write!(f, "Hop-by-Hop"),
             Protocol::Icmp => write!(f, "ICMP"),
@@ -242,7 +242,7 @@ impl From<Ipv6Address> for Address {
 }
 
 impl fmt::Display for Address {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => write!(f, "{}", addr),
@@ -254,7 +254,7 @@ impl fmt::Display for Address {
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for Address {
-    fn format(&self, f: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter<'_>) {
         match self {
             #[cfg(feature = "proto-ipv4")]
             &Address::Ipv4(addr) => defmt::write!(f, "{:?}", addr),
@@ -350,7 +350,7 @@ impl From<Ipv6Cidr> for Cidr {
 }
 
 impl fmt::Display for Cidr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             #[cfg(feature = "proto-ipv4")]
             Cidr::Ipv4(cidr) => write!(f, "{}", cidr),
@@ -362,7 +362,7 @@ impl fmt::Display for Cidr {
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for Cidr {
-    fn format(&self, f: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter<'_>) {
         match self {
             #[cfg(feature = "proto-ipv4")]
             &Cidr::Ipv4(cidr) => defmt::write!(f, "{:?}", cidr),
@@ -422,14 +422,14 @@ impl From<::std::net::SocketAddrV6> for Endpoint {
 }
 
 impl fmt::Display for Endpoint {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.addr, self.port)
     }
 }
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for Endpoint {
-    fn format(&self, f: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter<'_>) {
         defmt::write!(f, "{:?}:{=u16}", self.addr, self.port);
     }
 }
@@ -493,7 +493,7 @@ impl From<::std::net::SocketAddrV6> for ListenEndpoint {
 }
 
 impl fmt::Display for ListenEndpoint {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(addr) = self.addr {
             write!(f, "{}:{}", addr, self.port)
         } else {
@@ -504,7 +504,7 @@ impl fmt::Display for ListenEndpoint {
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for ListenEndpoint {
-    fn format(&self, f: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter<'_>) {
         defmt::write!(f, "{:?}:{=u16}", self.addr, self.port);
     }
 }
@@ -555,7 +555,7 @@ impl From<Ipv4Repr> for Repr {
 
 #[cfg(feature = "proto-ipv6")]
 impl From<Ipv6Repr> for Repr {
-    fn from(repr: Ipv6Repr) -> Repr {
+    fn from(repr: Ipv6Repr) -> Repr<'_> {
         Repr::Ipv6(repr)
     }
 }
@@ -791,7 +791,7 @@ pub mod checksum {
     }
 
     // We use this in pretty printer implementations.
-    pub(crate) fn format_checksum(f: &mut fmt::Formatter, correct: bool) -> fmt::Result {
+    pub(crate) fn format_checksum(f: &mut fmt::Formatter<'_>, correct: bool) -> fmt::Result {
         if !correct {
             write!(f, " (checksum incorrect)")
         } else {
@@ -803,7 +803,7 @@ pub mod checksum {
 use crate::wire::pretty_print::PrettyIndent;
 
 pub fn pretty_print_ip_payload<T: Into<Repr>>(
-    f: &mut fmt::Formatter,
+    f: &mut fmt::Formatter<'_>,
     indent: &mut PrettyIndent,
     ip_repr: T,
     payload: &[u8],

@@ -33,7 +33,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for Message {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Message::EchoReply => write!(f, "echo reply"),
             Message::DstUnreachable => write!(f, "destination unreachable"),
@@ -89,7 +89,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for DstUnreachable {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             DstUnreachable::NetUnreachable => write!(f, "destination network unreachable"),
             DstUnreachable::HostUnreachable => write!(f, "destination host unreachable"),
@@ -139,7 +139,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for TimeExceeded {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             TimeExceeded::TtlExpired => write!(f, "time-to-live exceeded in transit"),
             TimeExceeded::FragExpired => write!(f, "fragment reassembly time exceeded"),
@@ -554,7 +554,7 @@ impl<'a> Repr<'a> {
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match Repr::parse(self, &ChecksumCapabilities::default()) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
@@ -575,7 +575,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 }
 
 impl<'a> fmt::Display for Repr<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Repr::EchoRequest {
                 ident,
@@ -614,7 +614,7 @@ use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         let packet = match Packet::new_checked(buffer) {

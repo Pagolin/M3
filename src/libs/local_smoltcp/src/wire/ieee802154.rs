@@ -19,7 +19,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for FrameType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FrameType::Beacon => write!(f, "Beacon"),
             FrameType::Data => write!(f, "Data"),
@@ -54,7 +54,7 @@ impl AddressingMode {
 }
 
 impl fmt::Display for AddressingMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AddressingMode::Absent => write!(f, "Absent"),
             AddressingMode::Short => write!(f, "Short"),
@@ -161,7 +161,7 @@ impl Address {
 }
 
 impl fmt::Display for Address {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Absent => write!(f, "not-present"),
             Self::Short(bytes) => write!(f, "{:02x}-{:02x}", bytes[0], bytes[1]),
@@ -730,7 +730,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
 }
 
 impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "IEEE802.15.4 frame type={} seq={:2x?} dst_pan={:x?} dest={:x?} src_pan={:?} src={:x?}",

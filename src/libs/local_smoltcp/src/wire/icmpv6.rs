@@ -79,7 +79,7 @@ impl Message {
 }
 
 impl fmt::Display for Message {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Message::DstUnreachable => write!(f, "destination unreachable"),
             Message::PktTooBig => write!(f, "packet too big"),
@@ -120,7 +120,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for DstUnreachable {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             DstUnreachable::NoRoute => write!(f, "no route to destination"),
             DstUnreachable::AdminProhibit => write!(
@@ -152,7 +152,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for ParamProblem {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             ParamProblem::ErroneousHdrField => write!(f, "erroneous header field."),
             ParamProblem::UnrecognizedNxtHdr => write!(f, "unrecognized next header type."),
@@ -173,7 +173,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for TimeExceeded {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             TimeExceeded::HopLimitExceeded => write!(f, "hop limit exceeded in transit"),
             TimeExceeded::FragReassemExceeded => write!(f, "fragment reassembly time exceeded"),

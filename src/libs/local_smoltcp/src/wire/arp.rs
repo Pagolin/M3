@@ -320,7 +320,7 @@ impl Repr {
 }
 
 impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             _ => {
@@ -349,7 +349,7 @@ impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
 }
 
 impl fmt::Display for Repr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Repr::EthernetIpv4 {
                 operation,
@@ -377,7 +377,7 @@ use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {
@@ -432,7 +432,7 @@ mod test {
         assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }
 
-    fn packet_repr() -> Repr {
+    fn packet_repr() -> Repr<'_> {
         Repr::EthernetIpv4 {
             operation: Operation::Request,
             source_hardware_addr: EthernetAddress::from_bytes(&[

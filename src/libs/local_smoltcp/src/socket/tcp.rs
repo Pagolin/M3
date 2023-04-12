@@ -79,7 +79,7 @@ pub enum State {
 }
 
 impl fmt::Display for State {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             State::Closed => write!(f, "CLOSED"),
             State::Listen => write!(f, "LISTEN"),
@@ -746,7 +746,7 @@ impl<'a> Socket<'a> {
     /// is unspecified.
     pub fn connect<T, U>(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         remote_endpoint: T,
         local_endpoint: U,
     ) -> Result<(), ConnectError>
@@ -801,12 +801,12 @@ impl<'a> Socket<'a> {
     }
 
     #[cfg(test)]
-    fn random_seq_no(_cx: &mut Context) -> TcpSeqNumber {
+    fn random_seq_no(_cx: &mut Context<'_>) -> TcpSeqNumber {
         TcpSeqNumber(10000)
     }
 
     #[cfg(not(test))]
-    fn random_seq_no(cx: &mut Context) -> TcpSeqNumber {
+    fn random_seq_no(cx: &mut Context<'_>) -> TcpSeqNumber {
         TcpSeqNumber(cx.rand().rand_u32() as i32)
     }
 
@@ -1150,7 +1150,7 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn reply(ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
+    pub(crate) fn reply(ip_repr: &IpRepr, repr: &TcpRepr<'_>) -> (IpRepr, TcpRepr<'static>) {
         let reply_repr = TcpRepr {
             src_port: repr.dst_port,
             dst_port: repr.src_port,
@@ -1174,7 +1174,7 @@ impl<'a> Socket<'a> {
         (ip_reply_repr, reply_repr)
     }
 
-    pub(crate) fn rst_reply(ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
+    pub(crate) fn rst_reply(ip_repr: &IpRepr, repr: &TcpRepr<'_>) -> (IpRepr, TcpRepr<'static>) {
         debug_assert!(repr.control != TcpControl::Rst);
 
         let (ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
@@ -1190,7 +1190,7 @@ impl<'a> Socket<'a> {
         (ip_reply_repr, reply_repr)
     }
 
-    fn ack_reply(&mut self, ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
+    fn ack_reply(&mut self, ip_repr: &IpRepr, repr: &TcpRepr<'_>) -> (IpRepr, TcpRepr<'static>) {
         let (mut ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
 
         // From RFC 793:
@@ -1249,9 +1249,9 @@ impl<'a> Socket<'a> {
 
     fn challenge_ack_reply(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         ip_repr: &IpRepr,
-        repr: &TcpRepr,
+        repr: &TcpRepr<'_>,
     ) -> Option<(IpRepr, TcpRepr<'static>)> {
         if cx.now() < self.challenge_ack_timer {
             return None;
@@ -1263,7 +1263,7 @@ impl<'a> Socket<'a> {
         return Some(self.ack_reply(ip_repr, repr));
     }
 
-    pub(crate) fn accepts(&self, _cx: &mut Context, ip_repr: &IpRepr, repr: &TcpRepr) -> bool {
+    pub(crate) fn accepts(&self, _cx: &mut Context<'_>, ip_repr: &IpRepr, repr: &TcpRepr<'_>) -> bool {
         if self.state == State::Closed {
             return false;
         }
@@ -1293,9 +1293,9 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn process(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         ip_repr: &IpRepr,
-        repr: &TcpRepr,
+        repr: &TcpRepr<'_>,
     ) -> Option<(IpRepr, TcpRepr<'static>)> {
         debug_assert!(self.accepts(cx, ip_repr, repr));
 
@@ -1856,7 +1856,7 @@ impl<'a> Socket<'a> {
         }
     }
 
-    fn seq_to_transmit(&self, cx: &mut Context) -> bool {
+    fn seq_to_transmit(&self, cx: &mut Context<'_>) -> bool {
         let ip_header_len = match self.tuple.unwrap().local.addr {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(_) => crate::wire::IPV4_HEADER_LEN,
@@ -1947,9 +1947,9 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
-    where
-        F: FnOnce(&mut Context, (IpRepr, TcpRepr)) -> Result<(), E>,
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context<'_>, emit: F) -> Result<(), E>
+     where
+        F: FnOnce(&mut Context<'_>, (IpRepr, TcpRepr<'_>)) -> Result<(), E>,
     {
         if self.tuple.is_none() {
             return Ok(());
@@ -2234,7 +2234,7 @@ impl<'a> Socket<'a> {
     // the old one so here's just a wrapper for now
     pub(crate) fn dispatch_before(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Either<((IpRepr, TcpReprP), (TcpReprP, IpRepr, bool)), Result<(), Error>> {
         let result_optn = self.dispatch_before_optn(cx);
         match result_optn {
@@ -2251,7 +2251,7 @@ impl<'a> Socket<'a> {
     /// ie.e no ok_or
     pub(crate) fn dispatch_before_optn(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Option<((IpRepr, TcpReprP), (TcpReprP, IpRepr, bool))> {
         if self.tuple.is_none() {
             return None;
@@ -2496,12 +2496,12 @@ impl<'a> Socket<'a> {
     #[allow(dead_code)] // the normal interface from the original code
     pub(crate) fn dispatch_device<F, E>(
         &mut self,
-        cx: &mut Context,
-        (ip_repr, repr): (IpRepr, TcpRepr),
+        cx: &mut Context<'_>,
+        (ip_repr, repr): (IpRepr, TcpRepr<'_>),
         emit: F,
     ) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, TcpRepr)) -> Result<(), E>,
+        F: FnOnce(&mut Context<'_>, (IpRepr, TcpRepr<'_>)) -> Result<(), E>,
     {
         emit(cx, (ip_repr, repr))
     }
@@ -2514,7 +2514,7 @@ impl<'a> Socket<'a> {
     #[cfg(feature = "ohua")]
     pub(crate) fn dispatch_after<E>(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         (repr, _ip_repr, is_keep_alive): (TcpReprP, IpRepr, bool),
     ) -> Result<(), E> {
         // We've sent something, whether useful data or a keep-alive packet, so rewind
@@ -2568,7 +2568,7 @@ impl<'a> Socket<'a> {
         #[cfg(feature = "ohua")]
         pub(crate) fn dispatch_after_unit(
             &mut self,
-            cx: &mut Context,
+            cx: &mut Context<'_>,
             (repr, is_keep_alive): (TcpReprP, bool)
         )//ToDo: Original Code returned Ok here. Why don't we?!
         {
@@ -2623,7 +2623,7 @@ impl<'a> Socket<'a> {
     */
 
     #[allow(clippy::if_same_then_else)]
-    pub(crate) fn poll_at(&self, cx: &mut Context) -> PollAt {
+    pub(crate) fn poll_at(&self, cx: &mut Context<'_>) -> PollAt {
         // The logic here mirrors the beginning of dispatch() closely.
         if self.tuple.is_none() {
             // No one to talk to, nothing to transmit.
@@ -2786,7 +2786,7 @@ pub(crate) mod test {
 
     pub(crate) struct TestSocket {
         pub(crate) socket: Socket<'static>,
-        pub(crate) cx: Context<'static>,
+        pub(crate) cx:Context<'static>,
     }
 
     impl Deref for TestSocket {
@@ -2805,7 +2805,7 @@ pub(crate) mod test {
     fn send(
         socket: &mut TestSocket,
         timestamp: Instant,
-        repr: &TcpRepr,
+        repr: &TcpRepr<'_>,
     ) -> Option<TcpRepr<'static>> {
         socket.cx.set_now(timestamp);
 
@@ -2926,7 +2926,7 @@ pub(crate) mod test {
         let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
         let mut socket = Socket::new(rx_buffer, tx_buffer);
         socket.set_ack_delay(None);
-        let cx = Context::mock();
+        let cx =Context::mock();
         TestSocket { socket, cx }
     }
 

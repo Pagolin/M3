@@ -16,7 +16,7 @@ use crate::wire::{IpAddress, IpProtocol};
 pub struct SeqNumber(pub i32);
 
 impl fmt::Display for SeqNumber {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0 as u32)
     }
 }
@@ -1026,7 +1026,7 @@ impl ReprOwned {
             payload_len: tcp_repr.payload.len(),
         }
     }
-    pub fn to(&self) -> Repr {
+    pub fn to(&self) -> Repr<'_> {
         Repr {
             src_port: self.src_port,
             dst_port: self.dst_port,
@@ -1077,7 +1077,7 @@ impl ReprOwned {
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Cannot use Repr::parse because we don't have the IP addresses.
         write!(f, "TCP src={} dst={}", self.src_port(), self.dst_port())?;
         if self.syn() {
@@ -1133,7 +1133,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 }
 
 impl<'a> fmt::Display for Repr<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TCP src={} dst={}", self.src_port, self.dst_port)?;
         match self.control {
             Control::Syn => write!(f, " syn")?,
@@ -1160,7 +1160,7 @@ use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {

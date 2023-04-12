@@ -491,7 +491,7 @@ mod test {
     }
 
     struct Parsed<'a> {
-        packet: Packet<&'a [u8]>,
+        packet: Packet<'_><&'a [u8]>,
         questions: Vec<Question<'a>>,
         answers: Vec<Record<'a>>,
         authorities: Vec<Record<'a>>,

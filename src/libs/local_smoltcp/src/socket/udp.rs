@@ -370,7 +370,7 @@ impl<'a> Socket<'a> {
         Ok((length, endpoint))
     }
 
-    pub(crate) fn accepts(&self, _cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
+    pub(crate) fn accepts(&self, _cx: &mut Context<'_>, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port {
             return false;
         }
@@ -387,7 +387,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn process(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         ip_repr: &IpRepr,
         repr: &UdpRepr,
         payload: &[u8],
@@ -421,9 +421,9 @@ impl<'a> Socket<'a> {
         self.rx_waker.wake();
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context<'_>, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
+        F: FnOnce(&mut Context<'_>, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let endpoint = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
@@ -475,7 +475,7 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &mut Context<'_>) -> PollAt {
         if self.tx_buffer.is_empty() {
             PollAt::Ingress
         } else {
@@ -630,7 +630,7 @@ mod test {
     #[test]
     fn test_send_dispatch() {
         let mut socket = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(socket.bind(LOCAL_END), Ok(()));
 
@@ -673,7 +673,7 @@ mod test {
     #[test]
     fn test_recv_process() {
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
@@ -694,7 +694,7 @@ mod test {
     #[test]
     fn test_peek_process() {
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
@@ -709,7 +709,7 @@ mod test {
     #[test]
     fn test_recv_truncated_slice() {
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
@@ -724,7 +724,7 @@ mod test {
     #[test]
     fn test_peek_truncated_slice() {
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
@@ -741,7 +741,7 @@ mod test {
     #[test]
     fn test_set_hop_limit() {
         let mut s = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(s.bind(LOCAL_END), Ok(()));
 
@@ -768,7 +768,7 @@ mod test {
     #[test]
     fn test_doesnt_accept_wrong_port() {
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
@@ -780,7 +780,7 @@ mod test {
 
     #[test]
     fn test_doesnt_accept_wrong_ip() {
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         let mut port_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(port_bound_socket.bind(LOCAL_PORT), Ok(()));
@@ -809,7 +809,7 @@ mod test {
     fn test_process_empty_payload() {
         let recv_buffer = PacketBuffer::new(vec![PacketMetadata::EMPTY; 1], vec![]);
         let mut socket = socket(recv_buffer, buffer(0));
-        let mut cx = Context::mock();
+        let mut cx =Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 

@@ -96,7 +96,7 @@ where
 }
 
 #[doc(hidden)]
-pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer + 'a> {
+pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer> {
     fuzzer: &'a F,
     token: Rx,
 }
@@ -115,7 +115,7 @@ impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
 }
 
 #[doc(hidden)]
-pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer + 'a> {
+pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer> {
     fuzzer: &'a F,
     token: Tx,
 }

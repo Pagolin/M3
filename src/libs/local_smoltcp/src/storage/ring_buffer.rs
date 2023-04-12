@@ -24,7 +24,7 @@ use super::{Empty, Full};
 /// This implementation is suitable for both simple uses such as a FIFO queue
 /// of UDP packets, and advanced ones such as a TCP reassembly buffer.
 #[derive(Debug)]
-pub struct RingBuffer<'a, T: 'a> {
+pub struct RingBuffer<'a, T> {
     storage: ManagedSlice<'a, T>,
     read_at: usize,
     length: usize,

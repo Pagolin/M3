@@ -89,7 +89,7 @@ compile_error!("at least one socket needs to be enabled"); */
 #[allow(dead_code)]
 #[cfg(any(feature = "std", feature = "alloc"))]
 extern crate alloc;
-extern crate core;
+use core;
 
 #[cfg(not(any(
     feature = "proto-ipv4",
@@ -214,7 +214,7 @@ impl std::error::Error for Error {}
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::Exhausted => write!(f, "buffer space exhausted"),
             Error::Illegal => write!(f, "illegal operation"),
@@ -270,6 +270,7 @@ impl<L, R> Either<L, R> {
             ),
         }
     }
+    #[allow(dead_code)]
     pub fn right_or_panic(self) -> R {
         match self {
             Self::Right(r) => r,
@@ -286,6 +287,7 @@ impl<L, R> Either<L, R> {
         }
     }
 
+    #[allow(dead_code)]
     fn is_right(either: &Either<L, R>) -> bool {
         !Either::is_left(either)
     }

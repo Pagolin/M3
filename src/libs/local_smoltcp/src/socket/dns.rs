@@ -182,7 +182,7 @@ impl<'a> Socket<'a> {
     /// the same (there's no support for DNS search path).
     pub fn start_query(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         name: &str,
     ) -> Result<QueryHandle, StartQueryError> {
         let mut name = name.as_bytes();
@@ -232,7 +232,7 @@ impl<'a> Socket<'a> {
     /// You probably want to use [`start_query`] instead.
     pub fn start_query_raw(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         raw_name: &[u8],
     ) -> Result<QueryHandle, StartQueryError> {
         let handle = self.find_free_query().ok_or(StartQueryError::NoFreeSlot)?;
@@ -321,7 +321,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn process(
         &mut self,
-        _cx: &mut Context,
+        _cx: &mut Context<'_>,
         ip_repr: &IpRepr,
         udp_repr: &UdpRepr,
         payload: &[u8],
@@ -473,9 +473,9 @@ impl<'a> Socket<'a> {
         net_trace!("no query matched");
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context<'_>, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
+        F: FnOnce(&mut Context<'_>, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let hop_limit = self.hop_limit.unwrap_or(64);
 

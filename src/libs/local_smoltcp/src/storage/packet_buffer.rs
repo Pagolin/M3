@@ -40,7 +40,7 @@ impl<H> PacketMetadata<H> {
 
 /// An UDP packet ring buffer.
 #[derive(Debug)]
-pub struct PacketBuffer<'a, H: 'a> {
+pub struct PacketBuffer<'a, H> {
     metadata_ring: RingBuffer<'a, PacketMetadata<H>>,
     payload_ring: RingBuffer<'a, u8>,
 }

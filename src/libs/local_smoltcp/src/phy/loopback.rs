@@ -96,9 +96,11 @@ impl<'a> phy::TxToken for TxToken<'a> {
 
 #[cfg(test)]
 impl Loopback {
+    #[allow(dead_code)]
     pub(crate) fn empty_tx(&self) -> bool {
         self.queue.is_empty()
     }
+    #[allow(dead_code)]
     pub(crate) fn num_tx_packets(&self) -> usize {
         self.queue.len()
     }

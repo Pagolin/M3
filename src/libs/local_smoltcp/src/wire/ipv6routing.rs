@@ -35,7 +35,7 @@ enum_with_unknown! {
 }
 
 impl fmt::Display for Type {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Type::Type0 => write!(f, "Type0"),
             Type::Nimrod => write!(f, "Nimrod"),
@@ -383,7 +383,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
@@ -503,7 +503,7 @@ impl<'a> Repr<'a> {
 }
 
 impl<'a> fmt::Display for Repr<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Repr::Type2 {
                 next_header,

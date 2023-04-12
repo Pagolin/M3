@@ -30,6 +30,7 @@ pub struct Item<'a> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SocketHandle(usize);
 impl SocketHandle {
+    #[allow(unused)]
     pub(crate) fn as_index(&self) -> usize {
         self.0
     }
@@ -38,7 +39,7 @@ impl SocketHandle {
     }
 }
 impl fmt::Display for SocketHandle {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "#{}", self.0)
     }
 }
@@ -120,7 +121,7 @@ impl<'s> SocketSet<'s> {
     /// Given some item, returns a reference to the next item in the socket set.
     /// If no item is given, the first item  in the set will be referenced
     /// After the last item, the function returns None
-    pub fn get_next_item(&mut self, item: Option<Item>) -> Option<Item> {
+    pub fn get_next_item(&mut self, item: Option<Item<'_>>) -> Option<Item<'_>> {
         match item {
             None => self.sockets[0].inner.take(),
             Some(socket_item) => {

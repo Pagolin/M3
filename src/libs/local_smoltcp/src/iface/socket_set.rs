@@ -9,18 +9,17 @@ use crate::socket::{AnySocket, Socket};
 /// This is public so you can use it to allocate space for storing
 /// sockets when creating an Interface.
 #[derive(Debug, Default)]
-pub struct SocketStorage<'s> {
-    inner: Option<Item<'s>>,
+pub struct SocketStorage<'a> {
+    inner: Option<Item<'a>>,
 }
 
 impl<'s> SocketStorage<'s> {
     pub const EMPTY: Self = Self { inner: None };
 }
 
-
 /// An item of a socket set.
 #[derive(Debug)]
-pub struct Item<'a> {
+pub(crate) struct Item<'a> {
     pub(crate) meta: Meta,
     pub(crate) socket: Socket<'a>,
 }
@@ -29,15 +28,7 @@ pub struct Item<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SocketHandle(usize);
-impl SocketHandle {
-    #[allow(unused)]
-    pub(crate) fn as_index(&self) -> usize {
-        self.0
-    }
-    pub(crate) fn from_index(i: usize) -> Self {
-        SocketHandle(i)
-    }
-}
+
 impl fmt::Display for SocketHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "#{}", self.0)
@@ -97,14 +88,6 @@ impl<'s> SocketSet<'s> {
         }
     }
 
-    pub fn get_mut_item(&mut self, handle: usize) -> Option<&mut Item<'s>> {
-        self.sockets[handle].inner.as_mut()
-    }
-
-    // Reminder: See the last two reminders
-    pub fn same(handle: SocketHandle, other: usize) -> bool {
-        handle.0 == other
-    }
     /// Get a socket from the set by its handle, as mutable.
     ///
     /// # Panics
@@ -116,22 +99,6 @@ impl<'s> SocketSet<'s> {
                 T::downcast(&item.socket).expect("handle refers to a socket of a wrong type")
             }
             None => panic!("handle does not refer to a valid socket"),
-        }
-    }
-    /// Given some item, returns a reference to the next item in the socket set.
-    /// If no item is given, the first item  in the set will be referenced
-    /// After the last item, the function returns None
-    pub fn get_next_item(&mut self, item: Option<Item<'_>>) -> Option<Item<'_>> {
-        match item {
-            None => self.sockets[0].inner.take(),
-            Some(socket_item) => {
-                let index = socket_item.meta.handle.0;
-                if index + 1 < self.size() {
-                    self.sockets[index + 1].inner.take()
-                } else {
-                    return None;
-                }
-            }
         }
     }
 
@@ -178,9 +145,5 @@ impl<'s> SocketSet<'s> {
     /// Iterate every socket in this set.
     pub(crate) fn items_mut(&mut self) -> impl Iterator<Item = &mut Item<'s>> + '_ {
         self.sockets.iter_mut().filter_map(|x| x.inner.as_mut())
-    }
-
-    pub(crate) fn size(&self) -> usize {
-        self.sockets.len()
     }
 }

@@ -104,7 +104,7 @@ r#"
     ];
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(vec![]).ip_addrs(ip_addrs);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
 
     if medium == Medium::Ethernet {
         builder = builder.hardware_addr(ethernet_addr.into()).neighbor_cache(neighbor_cache);

@@ -242,7 +242,6 @@ pub use self::tcp::{
 };
 
 
-pub use self::tcp::ReprOwned as TcpReprP;
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{

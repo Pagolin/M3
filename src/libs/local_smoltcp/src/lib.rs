@@ -86,10 +86,9 @@ compile_error!("at least one socket needs to be enabled"); */
 #![allow(clippy::identity_op)]
 #![allow(clippy::option_map_unit_fn)]
 #![allow(clippy::unit_arg)]
-#[allow(dead_code)]
+
 #[cfg(any(feature = "std", feature = "alloc"))]
 extern crate alloc;
-use core;
 
 #[cfg(not(any(
     feature = "proto-ipv4",
@@ -251,44 +250,5 @@ impl fmt::Display for Error {
 impl From<wire::Error> for Error {
     fn from(_: wire::Error) -> Self {
         Error::Malformed
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Either<L, R> {
-    Left(L),
-    Right(R),
-}
-
-impl<L, R> Either<L, R> {
-    pub fn left_or_panic(self) -> L {
-        match self {
-            Self::Left(l) => l,
-            Self::Right(_) => panic!(
-                "You tried to get Either::Left from an
-             Either::Right"
-            ),
-        }
-    }
-    #[allow(dead_code)]
-    pub fn right_or_panic(self) -> R {
-        match self {
-            Self::Right(r) => r,
-            Self::Left(_) => panic!(
-                "You tried to get Either::Right from an\
-             Either::Left"
-            ),
-        }
-    }
-    pub fn is_left(either: &Either<L, R>) -> bool {
-        match either {
-            Either::Left(_) => true,
-            Either::Right(_) => false,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn is_right(either: &Either<L, R>) -> bool {
-        !Either::is_left(either)
     }
 }

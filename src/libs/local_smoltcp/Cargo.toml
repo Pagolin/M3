@@ -52,8 +52,6 @@ verbose = []
 "socket-dhcpv4" = ["socket", "medium-ethernet", "proto-dhcpv4"]
 
 "async" = []
-
-"ohua" = ["socket-tcp"]
 "m3" = []
 
 
@@ -65,6 +63,5 @@ default = [
   "medium-ethernet",
   "proto-ipv4",
   "socket-raw", "socket-udp", "socket-tcp",
-  "ohua",
   "m3"
 ]

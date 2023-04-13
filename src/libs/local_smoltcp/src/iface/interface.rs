@@ -68,7 +68,7 @@ impl LocalTxToken {
     }
 }
 
-pub type Messages = Vec<(SocketHandle, Vec<u8>)>;
+pub type Messages = Vec<(SocketHandle, Option<Vec<u8>>)>;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum InterfaceCall{
@@ -88,7 +88,7 @@ pub enum InterfaceCall{
     HandleResult(Result<()>),
     // iterates to nex socket & packet
     UpdateEgressState,
-    AnswerToSocket(Vec<(SocketHandle, Vec<u8>)>),
+    AnswerToSocket(Messages),
 }
 
 // Calls to device overlap for Ingress and
@@ -696,6 +696,133 @@ let iface = builder.finalize(&mut device);
             readiness_changed:false,
         }
     }
+
+    pub fn finalize_no_dev<D>(self, caps: DeviceCapabilities) -> Interface<'a>
+    {
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+        let (hardware_addr, neighbor_cache) = match caps.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => (
+                Some(
+                    self.hardware_addr
+                        .expect("hardware_addr required option was not set"),
+                ),
+                Some(
+                    self.neighbor_cache
+                        .expect("neighbor_cache required option was not set"),
+                ),
+            ),
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => {
+                assert!(
+                    self.hardware_addr.is_none(),
+                    "hardware_addr is set, but device medium is IP"
+                );
+                assert!(
+                    self.neighbor_cache.is_none(),
+                    "neighbor_cache is set, but device medium is IP"
+                );
+                (None, None)
+            }
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => (
+                Some(
+                    self.hardware_addr
+                        .expect("hardware_addr required option was not set"),
+                ),
+                Some(
+                    self.neighbor_cache
+                        .expect("neighbor_cache required option was not set"),
+                ),
+            ),
+        };
+
+        #[cfg(feature = "medium-ieee802154")]
+        let mut rand = Rand::new(self.random_seed);
+        #[cfg(not(feature = "medium-ieee802154"))]
+        let rand = Rand::new(self.random_seed);
+
+        #[cfg(feature = "medium-ieee802154")]
+        let mut sequence_no;
+        #[cfg(feature = "medium-ieee802154")]
+        loop {
+            sequence_no = (rand.rand_u32() & 0xff) as u8;
+            if sequence_no != 0 {
+                break;
+            }
+        }
+
+        #[cfg(feature = "proto-sixlowpan")]
+        let mut tag;
+
+        #[cfg(feature = "proto-sixlowpan")]
+        loop {
+            tag = (rand.rand_u32() & 0xffff) as u16;
+            if tag != 0 {
+                break;
+            }
+        }
+
+        Interface {
+            fragments: FragmentsBuffer {
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                ipv4_fragments: self
+                    .ipv4_fragments
+                    .expect("Cache for incoming IPv4 fragments is required"),
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                sixlowpan_fragments: self
+                    .sixlowpan_fragments
+                    .expect("Cache for incoming 6LoWPAN fragments is required"),
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                sixlowpan_fragments_cache_timeout: self.sixlowpan_fragments_cache_timeout,
+
+                #[cfg(not(any(
+                    feature = "proto-ipv4-fragmentation",
+                    feature = "proto-sixlowpan-fragmentation"
+                )))]
+                _lifetime: core::marker::PhantomData,
+            },
+            out_packets: OutPackets {
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                sixlowpan_out_packet: SixlowpanOutPacket::new(
+                    self.sixlowpan_out_buffer
+                        .expect("Cache for outgoing 6LoWPAN fragments is required"),
+                ),
+
+                #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
+                _lifetime: core::marker::PhantomData,
+            },
+            inner: InterfaceInner {
+                now: Instant::from_secs(0),
+                caps,
+                #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+                hardware_addr,
+                ip_addrs: self.ip_addrs,
+                #[cfg(feature = "proto-ipv4")]
+                any_ip: self.any_ip,
+                routes: self.routes,
+                #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+                neighbor_cache,
+                #[cfg(feature = "proto-igmp")]
+                ipv4_multicast_groups: self.ipv4_multicast_groups,
+                #[cfg(feature = "proto-igmp")]
+                igmp_report_state: IgmpReportState::Inactive,
+                #[cfg(feature = "medium-ieee802154")]
+                sequence_no,
+                #[cfg(feature = "medium-ieee802154")]
+                pan_id: self.pan_id,
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                tag,
+                rand,
+            },
+            current_egress_state:None,
+            current_ingress_state:None,
+            sockets:Some(self.sockets),
+            emitted_any: false,
+            processed_any: false,
+            readiness_changed:false,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -1178,13 +1305,10 @@ impl<'a> Interface<'a> {
                     if socket.may_recv() {
                         let input = socket.recv(process_octets).unwrap();
                         if socket.can_send() && !input.is_empty() {
-                            net_debug!(
-                                "tcp:6969 send data: Which I would like to show you but
-                                I need to find utf8 conversion without std"
-                                /*{:?}",
-                                std::str::from_utf8(input.as_ref()).unwrap_or("(invalid utf8)")*/
-                            );
-                            return Either::Right((self.processed_any, vec![(handle, input)]));
+                            /*log!(DEBUG,
+                                    "Server Input: {:?} bytes", input.len()
+                            );*/
+                            return Either::Right((self.processed_any, vec![(handle, Some(input))]));
                         }
                     } else if socket.may_send() {
                         net_debug!("tcp:6969 close");
@@ -1195,8 +1319,9 @@ impl<'a> Interface<'a> {
                 }
             },
             InterfaceCall::AnswerToSocket(mut anwers) => {
-                // actually we're sure at this point that there is an answer
-                if let Some((handle, answer)) = anwers.pop(){
+                // If the previous request was not complete, there will be a None
+                // answer for our socket
+                if let Some((handle, Some(answer))) = anwers.pop(){
                     let socket = self.get_mut::<tcp::Socket<'_>>(handle);
                     let _res = socket.send_slice(&answer);
                 }
@@ -4120,9 +4245,11 @@ mod test {
 
         let iface_builder = InterfaceBuilder::new(vec![]).ip_addrs(ip_addrs);
 
-        #[cfg(feature = "proto-ipv4-fragmentation")] let iface_builder = iface_builder.ipv4_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()));
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        let iface_builder = iface_builder.ipv4_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()));
 
-        #[cfg(feature = "proto-igmp")] let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
+        #[cfg(feature = "proto-igmp")]
+        let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
         let iface = iface_builder.finalize(&mut device);
 
         (iface, SocketSet::new(vec![]), device)

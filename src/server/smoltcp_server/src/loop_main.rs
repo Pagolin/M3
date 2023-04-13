@@ -31,7 +31,7 @@ extern crate ffi_opaque;
 // extern crate libc;
 
 use crate::driver::*;
-use loop_lib::store::{Store};
+use loop_lib::init_components::{init_device, init_ip_stack, init_app, App, DeviceType};
 
 // The rust API for m3 basically defines one logging macro we can use here 
 // replacing debug!, info! and error!
@@ -43,20 +43,49 @@ use m3::tiles::OwnActivity;
 use m3::com::Semaphore;
 
 
-use local_smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
-use local_smoltcp::phy::{Device, Medium};
-use local_smoltcp::socket::{tcp};
-use local_smoltcp::time::Instant;
-use local_smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
+use local_smoltcp::iface::{Interface, NeighborCache, SocketSet, InterfaceCall};
+use local_smoltcp::phy::{Device, DeviceCapabilities};
+use local_smoltcp::time::{Duration, Instant};
+use local_smoltcp::{Either, Result};
 
 // m3's log takes a log-level-bool parameter
 const DEBUG: bool = true;
 
-fn process_octets(octets: &mut [u8]) -> (usize, Vec<u8>) {
-    let recvd_len = octets.len();
-    let mut data = vec![];
-    data.extend_from_slice(octets);
-    (recvd_len, data)
+
+fn maybe_wait(call: Either<InterfaceCall, (Option<Duration>, bool)>) -> InterfaceCall {
+    // We enter this method in every interaction between te device and the ip_stack
+    // Only in case of waiting call (Either::Right) from the device, we should wait
+    return if Either::is_left(&call) {
+        // No waiting -> Call the Interface directly
+        call.left_or_panic()
+    } else {
+        //phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        /* Original waiting logic of phy_wait ... :
+            1. If the device (file pointer) is ready/available
+                -> poll
+            2. If poll_delay return Some(advisory wait)
+                -> wait until the device is ready BUT at most for the advisory waiting time
+            3. If poll_delay returns None
+                ->   wait until the device becomes available again
+           Logic in the smoltcp_server/net loop:
+            1. If device.needs_poll() -> continue polling
+            2. If advised waiting time is Some(0) -> continue polling
+            3. If advised waiting time is Some(t) -> wait for t
+            4. If advised waiting time is None -> wait TimeDuration::MAX
+           -> There seems to be additional event logic preventing the m3 loop from
+               literally waiting for years so for the case where device does not need
+               polling and there is no advised waiting time we need to pick a
+               reasonable time to wait -> we take the one from the smoltcp loopback loop
+        */
+        let (advised_waiting_timeout, device_needs_poll) = call.right_or_panic();
+        if !device_needs_poll {
+            match advised_waiting_timeout {
+                None => OwnActivity::sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
+                Some(t) => OwnActivity::sleep_for(t.as_m3_duration()).ok(),
+            };
+        }
+        InterfaceCall::InitPoll
+    }
 }
 
 
@@ -77,112 +106,38 @@ r#"
      \/__/         \/__/         \/__/         \/__/                  \|__|
 "#
     );
-    log!(DEBUG, "Running smoltcp smoltcp_server");
+    log!(DEBUG, "Running smoltcp_server");
+
+    // We need t omount the file system to be able to create a DB
     m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on smoltcp_server");
 
-    let mut store = Store::new("kvstore");
+    let mut app = init_app();
 
+    let (mut device, caps):(DeviceType, DeviceCapabilities) = init_device();
 
-    let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);
-    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 2048]);
-    let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
-
-    #[cfg(target_vendor = "gem5")]
-    let mut device = E1000Device::new().unwrap();
-    #[cfg(target_vendor = "hw")]
-    let mut device = AXIEthDevice::new().unwrap();
-    #[cfg(target_vendor = "host")]
-    // The name parameter is used to identify the socket and is usually ser
-    // via the app config e.g. in boot/rust-net-tests.xml
-    let mut device = DevFifo::new("kvsocket");
-
-
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
-    let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let ip_addrs = [
-        IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)
-    ];
-
-    let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(vec![]).ip_addrs(ip_addrs);
-
-    if medium == Medium::Ethernet {
-        builder = builder.hardware_addr(ethernet_addr.into()).neighbor_cache(neighbor_cache);
-    }
-    let mut iface = builder.finalize(&mut device);
-
-    let mut sockets = SocketSet::new(vec![]);
-    let tcp_handle = sockets.add(tcp_socket);
+    let mut ip_stack:Interface<'_> = init_ip_stack(caps);
+    let mut ip_stack_call = InterfaceCall::InitPoll;
 
     // To ensure the client sends requests only after the smoltcp_server started we need a semaphore from m3
     let mut semaphore_set = false;
 
+
     loop {
-        let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut device, & mut sockets) {
-            Ok(_) => {}
-            Err(e) => {
-                log!(DEBUG, "poll error: {}", e);
-            }
-        }
-
-        let socket = sockets.get_mut::<tcp::Socket<'_>>(tcp_handle);
-        if !socket.is_open() {
-            socket.listen(6969).unwrap();
-        }
-
+        // ToDo: Where to put the semaphore handling?
         if !semaphore_set {
             // The client is attached to the same semaphore and will only try to send
             // once the smoltcp_server listens
             let _sem_r = Semaphore::attach("net").unwrap().up();
             semaphore_set = true;
         }
-
-
-        if socket.may_recv() {
-            let input = socket.recv(process_octets).unwrap();
-            if socket.can_send() && !input.is_empty() {
-                /*log!(DEBUG,
-                    "Server Input: {:?} bytes", input.len()
-                );*/
-                if let Some(outbytes) = store.handle_message(&input){
-                    // FIXME: Outbytes that don't fit in the sending buffer will be lost.
-                    //        We need an intermediate buffer to account for this
-                    socket.send_slice(&outbytes[..]).unwrap();
-                }
-            }
-        } else if socket.may_send() {
-            log!(DEBUG, "tcp:6969 close");
-            socket.close();
-        }
-        //phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
-        /* Original waiting logic of phy_wait ... :
-            1. If the device (file pointer) is ready/available
-                -> poll
-            2. If poll_delay return Some(advisory wait)
-                -> wait until the device is ready BUT at most for the advisory waiting time
-            3. If poll_delay returns None
-                ->   wait until the device becomes available again
-           Logic in the smoltcp_server/net loop:
-            1. If device.needs_poll() -> continue polling
-            2. If advised waiting time is Some(0) -> continue polling
-            3. If advised waiting time is Some(t) -> wait for t
-            4. If advised waiting time is None -> wait TimeDuration::MAX
-           -> There seems to be additional event logic preventing the m3 loop from
-               literally waiting for years so for the case where device does not need
-               polling and there is no advised waiting time we need to pick a
-               reasonable time to wait -> we take the one from the smoltcp loopback loop
-        */
-        if device.needs_poll() {
-            // println!("Server: Device needs poll");
-            continue
+        let device_or_app_call = ip_stack.process_call::<DeviceType>(ip_stack_call);
+        if Either::is_left(&device_or_app_call){
+            let call = device.process_call(device_or_app_call.left_or_panic());
+            ip_stack_call = maybe_wait(call)
         } else {
-            let advised_waiting_timeout = iface.poll_delay(timestamp, &sockets);
-            // println!("Server: Gonna wait a bit");
-            match advised_waiting_timeout {
-                None => OwnActivity::sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
-                Some(t) => OwnActivity::sleep_for(t.as_m3_duration()).ok(),
-            }
-        };
+            let (readiness_has_changed, message) = device_or_app_call.right_or_panic();
+            let answers = app.process_message(Ok(readiness_has_changed), message);
+            ip_stack_call = InterfaceCall::AnswerToSocket(answers);
+        }
     }
 }

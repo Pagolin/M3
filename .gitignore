@@ -17,3 +17,4 @@
 /out.csv
 .idea
 *.lock
+/src/libs/llvmprofile

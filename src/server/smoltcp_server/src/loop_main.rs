@@ -31,7 +31,7 @@ extern crate ffi_opaque;
 // extern crate libc;
 
 use crate::driver::*;
-use loop_lib::store::{Store};
+use loop_lib::store::{Store, Answer};
 
 // The rust API for m3 basically defines one logging macro we can use here 
 // replacing debug!, info! and error!
@@ -41,7 +41,7 @@ use m3::{log, vec, println};
 use m3::col::{BTreeMap, Vec};
 use m3::tiles::OwnActivity;
 use m3::com::Semaphore;
-
+use m3::tmif::exit;
 
 use local_smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use local_smoltcp::phy::{Device, Medium};
@@ -142,13 +142,18 @@ r#"
         if socket.may_recv() {
             let input = socket.recv(process_octets).unwrap();
             if socket.can_send() && !input.is_empty() {
-                /*log!(DEBUG,
-                    "Server Input: {:?} bytes", input.len()
-                );*/
-                if let Some(outbytes) = store.handle_message(&input){
+                match store.handle_message(&input) {
                     // FIXME: Outbytes that don't fit in the sending buffer will be lost.
                     //        We need an intermediate buffer to account for this
-                    socket.send_slice(&outbytes[..]).unwrap();
+                    Answer::Message(outbytes) => {let _ = socket.send_slice(&outbytes[..]).unwrap();},
+                    // Client has sent "ENDNOW" so we need to stop to shutdown gracefully
+                    Answer::Stop => {
+                        log!(DEBUG, "Client sent ENDNOW, so Server will stop");
+                        socket.close();
+                        break},
+
+                    // There wasn't enough data for a complete request
+                    Answer::Nothing => continue,
                 }
             }
         } else if socket.may_send() {
@@ -185,4 +190,6 @@ r#"
             }
         };
     }
+    log!(DEBUG, "Server reached end");
+    exit(0.into());
 }

@@ -150,8 +150,7 @@ r#"
                     Answer::Stop => {
                         log!(DEBUG, "Client sent ENDNOW, so Server will stop");
                         socket.close();
-                        break},
-
+                    },
                     // There wasn't enough data for a complete request
                     Answer::Nothing => continue,
                 }

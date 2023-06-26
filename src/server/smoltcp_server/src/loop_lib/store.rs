@@ -37,7 +37,7 @@ impl RawDB {
             // Todo: End simulation upon failure
             println!("Creating db failed");
         } else {
-            println!("DB creation successful yey")
+            println!("DB creation successful")
         }
         RawDB { ptr :db}
     }
@@ -87,6 +87,12 @@ impl Store {
         for the next input.
         */
         let mut input_bytes_vec = input_bytes.to_vec();
+        //println!("Store got {:?} new bytes", input_bytes_vec.len());
+        if input_bytes_vec.len() + self.unfinished_operation.len() < USIZE_LENGTH  {
+            //println!("Input was to short to contain a valid length info");
+            self.unfinished_operation.append(&mut input_bytes_vec);
+            return Answer::Nothing
+        }
 
         let mut operation_bytes =vec![];
         let mut length_bytes = vec![];
@@ -167,6 +173,7 @@ impl Store {
     fn get_operation_len(&self, input_bytes:& [u8]) -> Option<usize> {
         // We assume length to be u32, so we need at least 4 u8 in the input to be a valid length
         if input_bytes.len() < USIZE_LENGTH {
+            //println!("Input too small");
             return None
         }
         let (len_bytes, _rest) = input_bytes.split_at(USIZE_LENGTH);
@@ -175,6 +182,7 @@ impl Store {
         // We need a plausibility check here as anything that can be interpreted as a usize will
         // be, even if it was a sequence of special characters
         if new_len > MAX_PLAUSIBLE_PACKAGE_LENGTH{
+            //println!("Length conversion to usize failed");
             return None
         }
         Some(new_len)

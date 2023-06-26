@@ -155,7 +155,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
     }
     let time_taken = TimeInstant::now() - start_time;
     println!(
-    "Statistik:\n \
+    "Statistic:\n \
         Failures: {:?}\n \
         Successful Writes: {:?}\n \
         Successful Reads: {:?}\n \

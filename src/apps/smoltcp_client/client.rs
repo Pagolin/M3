@@ -71,6 +71,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
         println!("Client: Got socket");
     }
 
+    let mut operations = [0,0,0,0,0];
 
     // Wait for smoltcp_server to listen
     Semaphore::attach("net").unwrap().down().unwrap();
@@ -101,19 +102,21 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
     let mut insert_succ = 0;
     let mut retrieve_succ = 0;
 
-    for _ in 0..workload_header.number_of_operations {
-        let operation = importer::Package::load_as_bytes(&mut workload_buffer);
-        debug_assert!(importer::Package::from_bytes(&operation).is_ok());
-
+    for i in 0..workload_header.number_of_operations {
+        let db_request = importer::Package::load_as_bytes(&mut workload_buffer);
+        debug_assert!(importer::Package::from_bytes(&db_request).is_ok());
         if VERBOSE {
             println!("Sending operation...");
+            println!("Operation has {} bytes", db_request.len());
         }
+        // first byte encodes db operation. we need it for counting (successful) operations.
+        let operation = db_request[0] as usize;
         // Send length info for next request
         socket
-            .send(&operation.len().to_be_bytes())
+            .send(&db_request.len().to_be_bytes())
             .expect("send failed");
         // Send next request
-        socket.send(&operation).expect("send failed");
+        socket.send(&db_request).expect("send failed");
 
         if VERBOSE {
             println!("Receiving response...");
@@ -143,24 +146,34 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
         }
 
         if response == ERROR_MSG {
-            log!(true, "Client received a length encoding error and will end now.");
+            // can't use log! with format strings
+            println!("Client received a length encoding error and will end now. Operations remaining:{:?}", i);
             break;
         }
 
         match response.len() {
             0 => fails+=1,
-            4 => insert_succ +=1,
-            _ => retrieve_succ += 1,
+            // operations start at 1 indexes at 0
+            _ => operations[operation-1] += 1,
         }
     }
     let time_taken = TimeInstant::now() - start_time;
     println!(
     "Statistic:\n \
         Failures: {:?}\n \
-        Successful Writes: {:?}\n \
-        Successful Reads: {:?}\n \
+        Insert Success: {:?}\n \
+        Delete Success: {:?}\n \
+        Read Success: {:?}\n \
+        Scan Success: {:?}\n \
+        Update Success: {:?}\n \
         Total Time: {:?}",
-    fails, insert_succ, retrieve_succ, time_taken);
+    fails,
+    operations[0],
+    operations[1],
+    operations[2],
+    operations[3],
+    operations[4],
+    time_taken);
     println!("Client: Will send end Message");
 
     let end_msg = b"ENDNOW";

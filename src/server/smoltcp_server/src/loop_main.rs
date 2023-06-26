@@ -145,6 +145,7 @@ r#"
                 match store.handle_message(&input) {
                     // FIXME: Outbytes that don't fit in the sending buffer will be lost.
                     //        We need an intermediate buffer to account for this
+                    //        Currently its not an issue, because we only care if the answer has 0 or more than 0 bytes
                     Answer::Message(outbytes) => {let _ = socket.send_slice(&outbytes[..]).unwrap();},
                     // Client has sent "ENDNOW" so we need to stop to shutdown gracefully
                     Answer::Stop => {

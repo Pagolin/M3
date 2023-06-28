@@ -51,7 +51,11 @@ impl Drop for RawDB {
     }
 }
 
-
+pub enum Answer {
+    Message(Vec<u8>),
+    Nothing,
+    Stop,
+}
 
 pub struct Store {
     // ToDo: Replace <data> with a handle to LevelDB
@@ -67,7 +71,7 @@ impl Store {
         }
     }
 
-    pub fn handle_message(&mut self, input_bytes:&[u8]) -> Option<Vec<u8>>{
+    pub fn handle_message(&mut self, input_bytes:&[u8]) -> Answer {
         /*
         So we get a new message. The Data Stream will look something like this:
         ... 10 <10 bytes Operation> 23 <23 bytes Operation> 14 <14 bytes Operation> ...
@@ -111,7 +115,7 @@ impl Store {
                 let mut error_msg = b"ERROR".to_vec();
                 let mut header_and_msg = error_msg.len().to_be_bytes().to_vec();
                 header_and_msg.append(&mut error_msg);
-                return Some(header_and_msg)
+                return Answer::Message(header_and_msg)
             }
             // succeeds => we now how many bytes we need for the next operation
             Some(l) => {
@@ -126,13 +130,8 @@ impl Store {
 
         if op_len == 6 {
             if let Ok("ENDNOW") = str::from_utf8(&operation_bytes){
-                // ToDo: This makes a lot more sense in the original scenario, where both
-                //  the server and the client where 'apps', meaning both have to end to end the
-                //  simulation. Mow this isn't needed any more, because only the client is an app
-                //  so when it ends the simulation also should. However we still get those
-                //  errors from m3 and the simulation does NOT stop if I don't close the socket
-                //  WHY?!
                 println!("Should end");
+                return Answer::Stop
             }
         }
 
@@ -145,7 +144,7 @@ impl Store {
             self.unfinished_operation.append(&mut operation_bytes);
             // println!("To few bytes for operation. We stored {:?} bytes for later", self.unfinished_operation.len());
             // We're done until te next packet arrives
-            return None
+            return Answer::Nothing
         } else {
             let remainder = operation_bytes.split_off(op_len);
             self.unfinished_operation = remainder;
@@ -154,7 +153,7 @@ impl Store {
                     , operation_bytes.len()
                      , self.unfinished_operation.len());*/
             let answer = self.answer(operation_bytes);
-            Some(answer)
+            return Answer::Message(answer)
         }
     }
 

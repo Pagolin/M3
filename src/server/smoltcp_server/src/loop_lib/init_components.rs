@@ -7,7 +7,7 @@ use local_smoltcp::socket::{tcp};
 use local_smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 use local_smoltcp::{Result};
 
-use crate::loop_lib::store::Store;
+use crate::loop_lib::store::{Store, Answer};
 
 use crate::driver::*;
 
@@ -105,9 +105,20 @@ impl App {
                 }
             }
         for (handle, optn_msg) in messages.iter_mut() {
-           if let Some(msg) = optn_msg{
-               let answer = self.store.handle_message(&msg);
-               *optn_msg = answer
+           if let Some(msg) = optn_msg {
+               let answer = match self.store.handle_message(&msg){
+                   Answer::Message(outbytes) => Some(outbytes),
+                   // Client has sent "ENDNOW" so we need to stop to shutdown gracefully
+                   Answer::Stop => {
+                       log!(true, "Client sent ENDNOW, so Server will stop");
+                       // We need to forward this to the interface, which is a bit of
+                       // redundant data flow, but the packet parsing happens in the store ¯\_(ツ)_/¯
+                       Some(b"ENDNOW".to_vec())
+                   },
+                   // There wasn't enough data for a complete request -> we'll get more from the client in the next poll
+                   Answer::Nothing => None,
+                };
+               *optn_msg = answer;
             }
         }
         messages

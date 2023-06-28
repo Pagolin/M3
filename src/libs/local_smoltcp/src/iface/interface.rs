@@ -2,12 +2,14 @@
 // of RFC 1122 that discuss Ethernet, ARP and IP for any IPv4 work
 // and RFCs 8200 and 4861 for any IPv6 and NDISC work.
 
-use core::cmp;
+use core::{str, cmp};
+use alloc::vec;
 
 use m3::rc::Rc;
 use m3::vec::Vec;
-use alloc::vec;
 use m3::cell::RefCell;
+
+
 use managed::{ManagedMap, ManagedSlice};
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
@@ -1323,12 +1325,17 @@ impl<'a> Interface<'a> {
                 // answer for our socket
                 if let Some((handle, Some(answer))) = anwers.pop(){
                     let socket = self.get_mut::<tcp::Socket<'_>>(handle);
-                    let _res = socket.send_slice(&answer);
+                    if let Ok("ENDNOW") = str::from_utf8(&answer){
+                        socket.close()
+                    } else {
+                        let _res = socket.send_slice(&answer);
+                    }
+
                 }
                 // before we poll again we need to wait, we need to do it
-                // in the main scope and we need to aske the device for it's
+                // in the main scope and we need to ask the device for it's
                 // 'opinion' -> We send our 'proposed waiting time' to the device
-                // let the device answer sending it's opion back to the main
+                // let the device answer sending it's option back to the main
                 // scope, where we wait if needed and return an InitPoll interface
                 // call again
                 let iface_wait_proposal = self.poll_delay_ohua(self.inner.now);

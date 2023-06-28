@@ -80,8 +80,8 @@ fn maybe_wait(call: Either<InterfaceCall, (Option<Duration>, bool)>) -> Interfac
         let (advised_waiting_timeout, device_needs_poll) = call.right_or_panic();
         if !device_needs_poll {
             match advised_waiting_timeout {
-                None => OwnActivity::sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
                 Some(t) => OwnActivity::sleep_for(t.as_m3_duration()).ok(),
+                None => OwnActivity::sleep_for(m3::time::TimeDuration::from_millis(1)).ok(),
             };
         }
         InterfaceCall::InitPoll

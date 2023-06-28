@@ -95,8 +95,8 @@ impl Store {
         }
 
         let mut operation_bytes =vec![];
-        let mut length_bytes = vec![];
-        let mut op_len = 0;
+        let mut length_bytes;
+        let op_len;
 	
         // In general we can append the new data to the 'unfinished operation' since it will
         // be empty if there's nothing unfinished. Doing so, has the following advantage: If

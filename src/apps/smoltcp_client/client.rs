@@ -20,7 +20,6 @@
 extern crate m3;
 
 use m3::{
-    log,
     col::Vec,
     com::Semaphore,
     env,
@@ -72,6 +71,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
     }
 
     let mut operations = [0,0,0,0,0];
+    let mut fails = 0;
 
     // Wait for smoltcp_server to listen
     Semaphore::attach("net").unwrap().down().unwrap();
@@ -98,9 +98,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, _repeats
         success of INSERT/UPDATE, and data from READ/SCAN respectively. SO for now we use
         the categories 0, 4, >4 for 'bookkeeping'
     */
-    let mut fails = 0;
-    let mut insert_succ = 0;
-    let mut retrieve_succ = 0;
+
 
     for i in 0..workload_header.number_of_operations {
         let db_request = importer::Package::load_as_bytes(&mut workload_buffer);

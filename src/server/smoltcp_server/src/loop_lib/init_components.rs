@@ -24,7 +24,7 @@ pub type DeviceType = DevFifo;
 pub fn init_device() -> (E1000Device, DeviceCapabilities)
 {
 
-    let mut device = E1000Device::new().unwrap();
+    let device = E1000Device::new().unwrap();
     let caps = device.capabilities();
     (device, caps)
 }
@@ -32,7 +32,7 @@ pub fn init_device() -> (E1000Device, DeviceCapabilities)
 #[cfg(target_vendor = "hw")]
 pub fn init_device() -> (AXIEthDevice, DeviceCapabilities)
 {
-    let mut device = AXIEthDevice::new().unwrap();
+    let device = AXIEthDevice::new().unwrap();
     let caps = device.capabilities();
     (device, caps)
 }
@@ -42,7 +42,7 @@ pub fn init_device() -> (DevFifo, DeviceCapabilities)
 {
     // The name parameter is used to identify the socket and is usually ser
     // via the app config e.g. in boot/rust-net-tests.xml
-    let mut device = DevFifo::new("kvsocket");
+    let device = DevFifo::new("kvsocket");
 
     let caps = device.capabilities();
     (device, caps)
@@ -53,7 +53,7 @@ pub fn init_ip_stack(caps: DeviceCapabilities) -> Interface<'static> {
     let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 2048]);
     let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
 
-    let mut sockets = vec![];
+    let sockets = vec![];
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
@@ -71,7 +71,7 @@ pub fn init_ip_stack(caps: DeviceCapabilities) -> Interface<'static> {
 
     let mut iface = builder.finalize_no_dev::<DeviceType>(caps);
 
-    let tcp_handle = iface.add_socket(tcp_socket);
+    let _tcp_handle = iface.add_socket(tcp_socket);
     iface
 }
 
@@ -104,7 +104,7 @@ impl App {
                     log!(true, "poll error: {}", e);
                 }
             }
-        for (handle, optn_msg) in messages.iter_mut() {
+        for (_handle, optn_msg) in messages.iter_mut() {
            if let Some(msg) = optn_msg {
                let answer = match self.store.handle_message(&msg){
                    Answer::Message(outbytes) => Some(outbytes),

@@ -18,3 +18,4 @@
 .idea
 *.lock
 /src/libs/llvmprofile
+ycsb

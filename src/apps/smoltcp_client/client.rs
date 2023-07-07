@@ -133,7 +133,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
 
     let mut total_stats = Stats::new();
 
-    for _ in 0..repeats {
+    for repeat in 0..repeats {
         // Load workload info for the benchmark
         let workload = m3::vfs::VFS::open(wl, OpenFlags::R).expect("Could not open file");
         let mut workload_buffer = BufReader::new(workload);
@@ -199,6 +199,7 @@ fn tcp_client(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
             }
         }
         let time_taken = TimeInstant::now() - start_time;
+        println!("Done repeat {:?}", repeat);
         // as_raw gives value as nanoseconds as u64 for Duration
         total_stats.update(&run_results, time_taken.as_raw());
     }

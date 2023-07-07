@@ -69,14 +69,3 @@ plt.show()
 
 
 
-# ToDo:
-#       averaging and std should be left to the plot lib,
-#       also, I'll need a way to merge results from the currently distinct branches original and rewritten
-#       propably the best thing for now is a linewise write out of results as csv, since its easy to feed into seaborn
-#       like wl_name  *time*, *time*, *time* ....
-#            wl_name2 *time*, *time*, *time* ....
-#       counts of operations don't seem to important at this point.
-
-
-
-

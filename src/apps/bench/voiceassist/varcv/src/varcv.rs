@@ -17,25 +17,28 @@
 #![no_std]
 
 use core::cmp;
-
 use m3::col::Vec;
+use m3::com::Semaphore;
 use m3::env;
+use m3::errors::{Code, Error};
 use m3::net::{
-    DGramSocket, DgramSocketArgs, Port, StreamSocket, StreamSocketArgs, TcpSocket, UdpSocket,
+    DGramSocket, DgramSocketArgs, Port, Socket, StreamSocket, StreamSocketArgs, TcpSocket,
+    UdpSocket,
 };
 use m3::println;
 use m3::session::NetworkManager;
+use m3::tiles::OwnActivity;
 use m3::vec;
 
 const VERBOSE: bool = false;
 
 fn usage(name: &str) -> ! {
     println!("Usage: {} (udp|tcp) <port> <repeats>", name);
-    m3::exit(1);
+    OwnActivity::exit_with(Code::InvArgs);
 }
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let args = env::args().collect::<Vec<&str>>();
     if args.len() != 4 {
         usage(args[0]);
@@ -58,6 +61,11 @@ pub fn main() -> i32 {
         .expect("creating TCP socket failed");
 
         tcp_socket.listen(port).expect("listen failed");
+
+        if let Ok(sem) = Semaphore::attach("net") {
+            sem.up().expect("Unable to up semaphore");
+        }
+
         let ep = tcp_socket.accept().expect("accept failed");
         println!("Accepted remote endpoint {}", ep);
 
@@ -101,6 +109,10 @@ pub fn main() -> i32 {
         socket.bind(port).expect("Could not bind socket");
         println!("Waiting for UDP packets on port {}", port);
 
+        if let Ok(sem) = Semaphore::attach("net") {
+            sem.up().expect("Unable to up semaphore");
+        }
+
         let mut buf = vec![0u8; 1024];
         loop {
             let amount = socket.recv(&mut buf).expect("Receive failed");
@@ -110,5 +122,5 @@ pub fn main() -> i32 {
         }
     }
 
-    0
+    Ok(())
 }

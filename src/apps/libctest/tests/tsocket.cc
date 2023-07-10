@@ -32,7 +32,7 @@
 
 using namespace m3;
 
-EXTERN_C int __m3_init_netmng(const char *name);
+EXTERN_C m3::Errors::Code __m3c_init_netmng(const char *name);
 
 constexpr size_t BUF_SIZE = 256;
 
@@ -76,7 +76,7 @@ static void generic_echo(const char *addr, const char *port, int type) {
     WVASSERTEQ(getpeername(sfd, (struct sockaddr *)&remote, &remote_len), 0);
     WVASSERTEQ(sizeof(remote), remote_len);
     WVASSERTSTREQ(inet_ntoa(remote.sin_addr), "127.0.0.1");
-    WVASSERTEQ(remote.sin_port, atoi(port));
+    WVASSERTEQ(ntohs(remote.sin_port), atoi(port));
 
     char buf[BUF_SIZE];
 
@@ -94,7 +94,7 @@ static void generic_echo(const char *addr, const char *port, int type) {
     WVASSERTEQ(recvfrom(sfd, buf, BUF_SIZE, 0, (struct sockaddr *)&src, &src_len), 6);
     WVASSERTEQ(sizeof(src), src_len);
     WVASSERTSTREQ(inet_ntoa(src.sin_addr), "127.0.0.1");
-    WVASSERTEQ(src.sin_port, atoi(port));
+    WVASSERTEQ(ntohs(src.sin_port), atoi(port));
     WVASSERT(strncmp(buf, "zombie", 6) == 0);
 
     struct iovec msg_data;
@@ -127,7 +127,7 @@ static void tcp_echo() {
 
 static int tcp_server() {
     // connect to netmng explicitly here to specify a different session name
-    __m3_init_netmng("netserv");
+    __m3c_init_netmng("netserv");
 
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
@@ -183,11 +183,11 @@ static int tcp_server() {
 static void tcp_accept() {
     Semaphore::attach("net-tcp").down();
 
-    auto tile = Tile::get("clone|own");
+    auto tile = Tile::get("compat|own");
     ChildActivity server(tile, "server");
     server.run(tcp_server);
 
-    Activity::sleep_for(TimeDuration::from_millis(10));
+    OwnActivity::sleep_for(TimeDuration::from_millis(10));
 
     struct addrinfo *rp;
     int fd = open_socket("127.0.0.1", "2000", SOCK_STREAM, &rp);

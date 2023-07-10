@@ -3,12 +3,14 @@ dirs = [
     'bench-apps',
     'cppbenchs',
     'cppnetbenchs',
+    'facever',
     'fs',
     'fstrace',
     'hashmuxbenchs',
     'imgproc',
     'ipc',
     'loadgen',
+    'mem',
     'netlat',
     'rustbenchs',
     'rustnetbenchs',
@@ -18,6 +20,7 @@ dirs = [
     'voiceassist',
     'ycsb',
 ]
+
 
 def build(gen, env):
     for d in dirs:

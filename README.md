@@ -13,27 +13,32 @@ The new hardware component is called trusted communication unit (TCU). Since not
 Supported Platforms:
 --------------------
 
-Currently, M³ runs on the following platforms:
+Currently, M³ runs on the following target platforms:
 
 - gem5, by adding a TCU model to gem5.
-- hw, a FPGA-based hardware platform.
-- host, on Linux by using Linux' primitives to simulate the behavior of the TCU and the envisioned system architecture.
+- hw or hw22, a FPGA-based hardware platform.
+
+The hardware platform comes in two variants: hw and hw22. The former is the current development version of the hardware platform, whereas the latter corresponds to the silicon version from the year 2022. The target platform is specified with the environment variable `M3_TARGET`. For example:
+
+    $ export M3_TARGET=gem5
 
 Getting Started:
 ----------------
 
 ### 1. Initial setup
 
-If you setup the project on a new (ubuntu) machine make sure to have at least the following packages installed
+If you setup the project on a new (Debian-based) machine make sure to have at least the following packages installed:
 
     $ sudo apt update
-    $ sudo apt install git build-essential scons zlib1g-dev \
+    $ sudo apt install git build-essential scons zlib1g-dev clang \
         m4 libboost-all-dev libssl-dev libgmp3-dev libmpfr-dev \
         libmpc-dev libncurses5-dev texinfo ninja-build libxml2-utils
 
+Note: If you have `pyenv` installed and therefore `/usr/bin/python` does not exist, you might need to install the package `python-dev-is-python3`.
+
 Afterwards, pull in the submodules:
 
-    $ git submodule update --init src/libs/musl src/libs/flac src/libs/leveldb
+    $ git submodule update --init ninjapie cross/buildroot src/apps/bsdutils src/libs/musl src/libs/flac src/libs/leveldb
 
 ### 2. Preparations for gem5
 
@@ -41,29 +46,36 @@ The submodule in `platform/gem5` needs to be pulled in and built:
 
     $ git submodule update --init platform/gem5
     $ cd platform/gem5
-    $ scons build/X86/gem5.opt
+    $ scons build/RISCV/gem5.opt # change ISA as needed
 
-Note that you can specify the number of threads to use for building in the last command via, for example, `-j8`.
+The build directory (`build/RISCV` in the example above) will be created automatically. You can build gem5 for a different ISA by changing the path to `build/X86/gem5.opt` or `build/ARM/gem5.opt`. Note that you can specify the number of threads to use for building in the last command via, for example, `-j8`.
 
-### 3. Preparation for the hardware platform
+### 3. Preparations for the hardware platform
 
-The current workflow assumes that the FPGA is connected to a machine `M_fpga` that is reachable via SSH from the machine `M_m3` that hosts M³. On `M_fpga`, the `platform/hw` submodule of the M³ repository needs to be available at `$HOME/tcu`:
+The submodule in `platform/hw` needs to be pulled in:
 
-    $ git clone https://gitlab.com/Nils-TUD/tcu.git
+    $ git submodule update --init platform/hw
 
-The bitfiles for the hardware platform can be found in `tcu/fpga_tools/bitfiles`. The bitfiles are built for the Xilinx VCU118 FPGA. Provided that Vivado Labs is installed, the following command can be used to load the latest bitfile onto the FPGA:
+The current workflow assumes that the FPGA is connected to a machine `M_fpga` that is reachable via SSH from the machine `M_m3` that hosts M³. A couple of environment variables have to be set before starting with the FPGA:
 
-    $ cd tcu/fpga_tools/testcases/tc_rocket_boot && make program-fpga
+    $ export M3_HW_FPGA_HOST=ssh-alias-for-M_fpga
+    $ export M3_HW_FPGA_DIR=directory-on-M_fpga     # relative to the home directory
+    $ export M3_HW_FPGA_NO=fpga-number              # e.g. 0 if your FPGA has IP 192.168.42.240
+    $ export M3_HW_VIVADO=path-to-vivado-on-M_fpga  # can also be vivado_lab
 
-Finally, before starting M³ on the FPGA, you have to tell M³ on `M_m3` how `M_fpga` can be reached:
+Note that `M_fpga` and `M_m3` can also be the same, in which case `M3_HW_FPGA_HOST` has to be set to localhost and a local SSH server is required.
 
-    $ export M3_HW_SSH=ssh-alias-for-M_fpga
+The bitfiles for the hardware platform can be found in `platform/hw/fpga_tools/bitfiles`. The bitfiles are built for the Xilinx VCU118 FPGA. The following command can be used to load a specific bitfile onto the FPGA. This requires an installation of Vivado or Vivado Lab:
+
+    $ ./b loadfpga=fpga_top_v4.5.1.bit
+
+With `M3_TARGET=hw22`, the bitfile `fpga_top_v4.4.12` needs to be used.
 
 Note that the source of the hardware platform is [openly available](https://github.com/Barkhausen-Institut/M3-hardware) as well.
 
-### 4. Cross compiler for gem5 and the hardware platform
+### 4. Cross compiler
 
-For gem5 and the hardware platform, you need to build a cross compiler for the desired ISA. Note that only gem5 supports all three ISAs; the hardware platform only supports RISC-V. You can build the cross compiler as follows:
+You need to build a cross compiler for the desired ISA. Note that only gem5 supports all three ISAs (arm is currently broken, though); the hardware platform only supports RISC-V. You can build the cross compiler as follows:
 
     $ cd cross
     $ ./build.sh (x86_64|arm|riscv)

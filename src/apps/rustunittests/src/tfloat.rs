@@ -34,7 +34,7 @@ fn calc_pi_local(t: &mut dyn WvTester) {
 }
 
 fn calc_pi_remote(t: &mut dyn WvTester) {
-    let tile = wv_assert_ok!(Tile::get("clone"));
+    let tile = wv_assert_ok!(Tile::get("compat"));
     calc_pi(t, &tile);
 }
 
@@ -73,12 +73,8 @@ fn calc_pi(t: &mut dyn WvTester, tile: &Rc<Tile>) {
 
         wv_assert!(t, pi >= PI_MIN);
         wv_assert!(t, pi <= PI_MAX);
-        println!(
-            "PI (Somayaji) on Tile{} = {}",
-            Activity::own().tile_id(),
-            pi
-        );
-        0
+        println!("PI (Somayaji) on {} = {}", Activity::own().tile_id(), pi);
+        Ok(())
     }));
 
     let steps = 1000;
@@ -102,7 +98,7 @@ fn calc_pi(t: &mut dyn WvTester, tile: &Rc<Tile>) {
     let pi = res * 4.0;
     wv_assert!(t, pi >= PI_MIN);
     wv_assert!(t, pi <= PI_MAX);
-    println!("PI (Leibniz) on Tile{} = {}", Activity::own().tile_id(), pi);
+    println!("PI (Leibniz) on {} = {}", Activity::own().tile_id(), pi);
 
     wv_assert_ok!(act.wait());
 }

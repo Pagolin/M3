@@ -21,7 +21,6 @@ use m3::rc::Rc;
 use m3::vec::Vec;
 
 use smoltcp::time::Instant;
-
 mod defines;
 mod e1000;
 mod eeprom;
@@ -74,6 +73,7 @@ impl<'a> smoltcp::phy::Device<'a> for E1000Device {
             device: self.dev.clone(),
         })
     }
+
 }
 
 pub struct RxToken {
@@ -88,6 +88,7 @@ impl smoltcp::phy::RxToken for RxToken {
         f(&mut self.buffer[..])
     }
 }
+
 
 pub struct TxToken {
     device: Rc<RefCell<e1000::E1000>>,

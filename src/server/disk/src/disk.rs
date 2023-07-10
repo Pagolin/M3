@@ -16,6 +16,7 @@
 #![no_std]
 
 mod backend;
+mod gem5;
 mod partition;
 
 use m3::cap::Selector;
@@ -36,7 +37,7 @@ use m3::tcu::Label;
 use m3::tiles::Activity;
 
 use backend::BlockDevice;
-use backend::BlockDeviceTrait;
+use gem5::IDEBlockDevice;
 
 pub const LOG_DEF: bool = false;
 pub const LOG_ALL: bool = false;
@@ -48,7 +49,7 @@ const MAX_DMA_SIZE: usize = 0x10000;
 const MIN_SEC_SIZE: usize = 512;
 
 static REQHDL: LazyReadOnlyCell<RequestHandler> = LazyReadOnlyCell::default();
-static DEVICE: LazyStaticRefCell<BlockDevice> = LazyStaticRefCell::default();
+static DEVICE: LazyStaticRefCell<IDEBlockDevice> = LazyStaticRefCell::default();
 
 struct DiskSession {
     sess: ServerSession,
@@ -118,7 +119,7 @@ impl DiskSession {
             func(self.part, &mgate, off, start, len)?;
         }
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 }
 
@@ -218,13 +219,13 @@ impl Handler<DiskSession> for DiskHandler {
 }
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let mut hdl = DiskHandler {
         sessions: SessionContainer::new(DEF_MAX_CLIENTS),
     };
     let s = Server::new("disk", &mut hdl).expect("Unable to create service 'disk'");
 
-    DEVICE.set(BlockDevice::new(env::args().collect()).expect("Unable to create block device"));
+    DEVICE.set(IDEBlockDevice::new(env::args().collect()).expect("Unable to create block device"));
     REQHDL.set(
         RequestHandler::new_with(DEF_MAX_CLIENTS, 256).expect("Unable to create request handler"),
     );
@@ -250,5 +251,5 @@ pub fn main() -> i32 {
     // delete device
     DEVICE.unset();
 
-    0
+    Ok(())
 }

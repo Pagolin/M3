@@ -5,6 +5,8 @@
 *.ninja_deps
 *.ninja_log
 /.cache
+/.remote-build
+/.remote-build-failed
 /build
 /cross/*/build
 /cross/*/src
@@ -13,5 +15,7 @@
 /run
 /dddg_parse_progress.out
 /out.csv
-ycsb/*
-.idea/*
+.idea
+*.lock
+/src/libs/llvmprofile
+ycsb

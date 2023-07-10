@@ -1,11 +1,14 @@
 <config>
-    <kernel args="kernel -f $fs.path" />
+    <mods>
+        <mod name="fs" file="default.img" />
+    </mods>
+    <kernel args="kernel" />
     <dom>
         <app args="root">
             <dom>
-                <app args="m3fs mem $fs.size" daemon="1">
+                <app args="m3fs mem" daemon="1">
                     <serv name="m3fs" />
-                    <physmem addr="0" size="$fs.size" />
+                    <mod name="fs" />
                 </app>
             </dom>
             <dom>
@@ -19,15 +22,15 @@
                     <serial />
                 </app>
             </dom>
-            <dom tile="imem+kecacc|core">
+            <dom tile="core+kecacc">
                 <app args="hashmux" daemon="1">
                     <serv name="hash" />
                 </app>
             </dom>
             <dom>
-                <app args="pager $fs.size" usermem="256M" getinfo="1">
+                <app args="pager" usermem="256M" getinfo="1">
                     <sess name="m3fs" />
-                    <physmem addr="0" size="$fs.size" perm="r" />
+                    <mod name="fs" perm="r" />
                     <tiles type="core" count="1" />
                     <dom>
                         <app args="/bin/shell" getinfo="1">

@@ -15,6 +15,7 @@
 
 use m3::cap::Selector;
 use m3::com::{recv_msg, RecvGate, SGateArgs, SendGate};
+use m3::errors::Code;
 use m3::rc::Rc;
 use m3::test::{DefaultWvTester, WvTester};
 use m3::tiles::{Activity, ActivityArgs, ChildActivity, RunningActivity, Tile};
@@ -35,7 +36,7 @@ pub fn run(t: &mut dyn WvTester) {
 }
 
 fn pingpong_remote(t: &mut dyn WvTester) {
-    let tile = wv_assert_ok!(Tile::get("clone"));
+    let tile = wv_assert_ok!(Tile::get("compat"));
     pingpong_with_tile(t, "remote", tile);
 }
 
@@ -66,17 +67,16 @@ fn pingpong_with_tile(t: &mut dyn WvTester, name: &str, tile: Rc<Tile>) {
     let act = wv_assert_ok!(act.run(|| {
         let mut t = DefaultWvTester::default();
         let rgate_sel: Selector = Activity::own().data_source().pop().unwrap();
-        let mut rgate = RecvGate::new_bind(rgate_sel, MSG_ORD, MSG_ORD);
-        wv_assert_ok!(rgate.activate());
+        let rgate = RecvGate::new_bind(rgate_sel);
         for _ in 0..RUNS + WARMUP {
             let mut msg = wv_assert_ok!(recv_msg(&rgate));
             wv_assert_eq!(t, msg.pop::<u64>(), Ok(0));
             wv_assert_ok!(reply_vmsg!(msg, 0u64));
         }
-        0
+        Ok(())
     }));
 
-    let mut prof = Profiler::default().repeats(RUNS).warmup(WARMUP);
+    let prof = Profiler::default().repeats(RUNS).warmup(WARMUP);
 
     let reply_gate = RecvGate::def();
     wv_perf!(
@@ -89,7 +89,7 @@ fn pingpong_with_tile(t: &mut dyn WvTester, name: &str, tile: Rc<Tile>) {
         })
     );
 
-    wv_assert_eq!(t, act.wait(), Ok(0));
+    wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }
 
 fn pingpong_with_multiple(t: &mut dyn WvTester) {
@@ -98,11 +98,11 @@ fn pingpong_with_multiple(t: &mut dyn WvTester) {
         return;
     }
 
-    let tile = wv_assert_ok!(Tile::get("clone"));
+    let tile = wv_assert_ok!(Tile::get("compat"));
     // use long time slices for childs (minimize timer interrupts)
     wv_assert_ok!(tile.set_quota(
         TimeDuration::from_secs(1).as_raw(),
-        tile.quota().unwrap().page_tables().left(),
+        tile.quota().unwrap().page_tables().remaining(),
     ));
 
     // split time quota between childs
@@ -127,20 +127,19 @@ fn pingpong_with_multiple(t: &mut dyn WvTester) {
     let func = || {
         let mut t = DefaultWvTester::default();
         let rgate_sel: Selector = Activity::own().data_source().pop().unwrap();
-        let mut rgate = RecvGate::new_bind(rgate_sel, MSG_ORD, MSG_ORD);
-        wv_assert_ok!(rgate.activate());
+        let rgate = RecvGate::new_bind(rgate_sel);
         for _ in 0..(RUNS + WARMUP) / 2 {
             let mut msg = wv_assert_ok!(recv_msg(&rgate));
             wv_assert_eq!(t, msg.pop::<u64>(), Ok(0));
             wv_assert_ok!(reply_vmsg!(msg, 0u64));
         }
-        0
+        Ok(())
     };
 
     let act1 = wv_assert_ok!(act1.run(func));
     let act2 = wv_assert_ok!(act2.run(func));
 
-    let mut prof = Profiler::default().repeats(RUNS).warmup(WARMUP);
+    let prof = Profiler::default().repeats(RUNS).warmup(WARMUP);
 
     let mut count = 0;
     let reply_gate = RecvGate::def();
@@ -163,6 +162,6 @@ fn pingpong_with_multiple(t: &mut dyn WvTester) {
         })
     );
 
-    wv_assert_eq!(t, act1.wait(), Ok(0));
-    wv_assert_eq!(t, act2.wait(), Ok(0));
+    wv_assert_eq!(t, act1.wait(), Ok(Code::Success));
+    wv_assert_eq!(t, act2.wait(), Ok(Code::Success));
 }

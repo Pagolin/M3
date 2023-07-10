@@ -15,41 +15,42 @@
 
 #![no_std]
 
+use m3::errors::Error;
 use m3::println;
 use m3::tiles::Activity;
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let (num, _) = Activity::own()
         .resmng()
         .unwrap()
         .get_activity_count()
         .expect("Unable to get Activity count");
     println!(
-        "{:2} | {:4} | {:>10} | {:>22} | {:>14} | {:>14} | {:>12} | Name",
+        "{:2} | {:5} | {:>10} | {:>22} | {:>14} | {:>14} | {:>12} | Name",
         "ID", "Tile", "Endpoints", "Time", "UserMem", "KernelMem", "Pagetables"
     );
     for i in 0..num {
         match Activity::own().resmng().unwrap().get_activity_info(i) {
             Ok(act) => {
                 println!(
-                    "{:2} | {:4} | {:2}:{:3}/{:3} | {:4}:{:6}us/{:6}us | {:2}:{:4}M/{:4}M | {:2}:{:4}M/{:4}M | {:4}:{:3}/{:3} | {:0l$}{}",
+                    "{:2} | {:5} | {:2}:{:3}/{:3} | {:4}:{:6}us/{:6}us | {:2}:{:4}M/{:4}M | {:2}:{:4}M/{:4}M | {:4}:{:3}/{:3} | {:0l$}{}",
                     act.id,
                     act.tile,
                     act.eps.id(),
-                    act.eps.left(),
+                    act.eps.remaining(),
                     act.eps.total(),
                     act.time.id(),
-                    act.time.left() / 1000,
+                    act.time.remaining() / 1000,
                     act.time.total() / 1000,
                     act.umem.id(),
-                    act.umem.left() / (1024 * 1024),
+                    act.umem.remaining() / (1024 * 1024),
                     act.umem.total() / (1024 * 1024),
                     act.kmem.id(),
-                    act.kmem.left() / (1024 * 1024),
+                    act.kmem.remaining() / (1024 * 1024),
                     act.kmem.total() / (1024 * 1024),
                     act.pts.id(),
-                    act.pts.left(),
+                    act.pts.remaining(),
                     act.pts.total(),
                     "",
                     act.name,
@@ -63,5 +64,6 @@ pub fn main() -> i32 {
             ),
         }
     }
-    0
+
+    Ok(())
 }

@@ -1,5 +1,6 @@
 <config>
-    <kernel args="kernel -b net0-net1" />
+    <env>M3_GEM5_CFG=config/default.py</env>
+    <kernel args="kernel" />
     <dom>
         <app args="root sem=net-udp sem=net-tcp">
             <dom>

@@ -27,7 +27,7 @@ use m3::server::{server_loop, CapExchange, Handler, Server, SessId, SessionConta
 use m3::session::{ClientSession, ServerSession};
 use m3::syscalls;
 use m3::test::{DefaultWvTester, WvTester};
-use m3::tiles::{Activity, ActivityArgs, ChildActivity, RunningActivity, Tile};
+use m3::tiles::{Activity, ActivityArgs, ChildActivity, OwnActivity, RunningActivity, Tile};
 use m3::{send_vmsg, wv_assert_eq, wv_assert_err, wv_assert_ok, wv_run_test};
 
 pub fn run(t: &mut dyn WvTester) {
@@ -66,18 +66,19 @@ impl Handler<EmptySession> for CrashHandler {
 
     fn obtain(&mut self, _: usize, _: SessId, _: &mut CapExchange<'_>) -> Result<(), Error> {
         // don't respond, just exit
-        m3::exit(1);
+        OwnActivity::exit_with(Code::EndOfFile);
     }
 }
 
-fn server_crash_main() -> i32 {
+fn server_crash_main() -> Result<(), Error> {
     let mut hdl = CrashHandler {
         sessions: SessionContainer::new(1),
     };
     let s = wv_assert_ok!(Server::new("test", &mut hdl));
 
     server_loop(|| s.handle_ctrl_chan(&mut hdl)).ok();
-    0
+
+    Ok(())
 }
 
 pub fn connect(name: &str) -> ClientSession {
@@ -92,13 +93,13 @@ pub fn connect(name: &str) -> ClientSession {
 }
 
 fn testnoresp(t: &mut dyn WvTester) {
-    let client_tile = wv_assert_ok!(Tile::get("clone|own"));
+    let client_tile = wv_assert_ok!(Tile::get("compat|own"));
     let client = wv_assert_ok!(ChildActivity::new_with(
         client_tile,
         ActivityArgs::new("client")
     ));
 
-    let server_tile = wv_assert_ok!(Tile::get("clone|own"));
+    let server_tile = wv_assert_ok!(Tile::get("compat|own"));
     let cact = {
         let serv = wv_assert_ok!(ChildActivity::new_with(
             server_tile,
@@ -111,27 +112,27 @@ fn testnoresp(t: &mut dyn WvTester) {
             let mut t = DefaultWvTester::default();
             let sess = connect("test");
             wv_assert_err!(t, sess.obtain_obj(), Code::RecvGone);
-            0
+            Ok(())
         }));
 
-        wv_assert_eq!(t, sact.wait(), Ok(1));
+        wv_assert_eq!(t, sact.wait(), Ok(Code::EndOfFile));
         cact
 
         // destroy server activity to let the client request fail
     };
 
     // now wait for client
-    wv_assert_eq!(t, cact.wait(), Ok(0));
+    wv_assert_eq!(t, cact.wait(), Ok(Code::Success));
 }
 
 fn testcliexit(t: &mut dyn WvTester) {
-    let client_tile = wv_assert_ok!(Tile::get("clone|own"));
+    let client_tile = wv_assert_ok!(Tile::get("compat|own"));
     let mut client = wv_assert_ok!(ChildActivity::new_with(
         client_tile,
         ActivityArgs::new("client")
     ));
 
-    let server_tile = wv_assert_ok!(Tile::get("clone|own"));
+    let server_tile = wv_assert_ok!(Tile::get("compat|own"));
     let serv = wv_assert_ok!(ChildActivity::new_with(
         server_tile,
         ActivityArgs::new("server")
@@ -139,10 +140,9 @@ fn testcliexit(t: &mut dyn WvTester) {
 
     let sact = wv_assert_ok!(serv.run(server_crash_main));
 
-    let mut rg = wv_assert_ok!(RecvGate::new_with(
+    let rg = wv_assert_ok!(RecvGate::new_with(
         RGateArgs::default().order(7).msg_order(6)
     ));
-    wv_assert_ok!(rg.activate());
 
     let sg = wv_assert_ok!(SendGate::new_with(SGateArgs::new(&rg).credits(2)));
     wv_assert_ok!(client.delegate_obj(sg.sel()));
@@ -194,7 +194,7 @@ fn testcliexit(t: &mut dyn WvTester) {
     wv_assert_ok!(recv_msg(&rg));
     wv_assert_ok!(recv_msg(&rg));
 
-    wv_assert_eq!(t, sact.wait(), Ok(1));
+    wv_assert_eq!(t, sact.wait(), Ok(Code::EndOfFile));
     wv_assert_ok!(cact.stop());
 }
 
@@ -247,7 +247,7 @@ impl Handler<EmptySession> for NotSupHandler {
     }
 }
 
-fn server_notsup_main() -> i32 {
+fn server_notsup_main() -> Result<(), Error> {
     for _ in 0..5 {
         STOP.set(false);
 
@@ -270,11 +270,11 @@ fn server_notsup_main() -> i32 {
         }
     }
 
-    0
+    Ok(())
 }
 
 fn testcaps(t: &mut dyn WvTester) {
-    let server_tile = wv_assert_ok!(Tile::get("clone|own"));
+    let server_tile = wv_assert_ok!(Tile::get("compat|own"));
     let serv = wv_assert_ok!(ChildActivity::new_with(
         server_tile,
         ActivityArgs::new("server")
@@ -305,5 +305,5 @@ fn testcaps(t: &mut dyn WvTester) {
     }
 
     wv_assert_err!(t, ClientSession::new("test"), Code::InvArgs);
-    wv_assert_eq!(t, sact.wait(), Ok(0));
+    wv_assert_eq!(t, sact.wait(), Ok(Code::Success));
 }

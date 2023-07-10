@@ -16,8 +16,6 @@
  * General Public License version 2 for more details.
  */
 
-#include <base/Env.h>
-
 #include <m3/com/GateStream.h>
 #include <m3/session/ClientSession.h>
 #include <m3/stream/Standard.h>
@@ -27,7 +25,7 @@ using namespace m3;
 
 static void received_data(GateIStream &is) {
     auto data = reinterpret_cast<const uint64_t *>(is.buffer());
-    cout << env()->tile_id << ": received " << fmt(*data, "x") << "\n";
+    println("{}: received {:x}"_cf, env()->tile_id, *data);
 }
 
 int main() {

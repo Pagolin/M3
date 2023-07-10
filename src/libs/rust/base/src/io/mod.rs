@@ -25,8 +25,7 @@ mod serial;
 pub use self::rdwr::{read_object, Read, Write};
 pub use self::serial::Serial;
 
-use crate::arch;
-use crate::util;
+use crate::tcu::TileId;
 
 /// Macro for logging (includes a trailing newline)
 ///
@@ -63,7 +62,6 @@ macro_rules! llog {
 
     (@log_impl $type:expr, $($args:tt)*)    => ({
         if $type {
-            #[allow(unused_imports)]
             use $crate::io::Write;
             if let Some(mut l) = $crate::io::log::Log::get() {
                 l.write_fmt(format_args!($($args)*)).unwrap();
@@ -90,14 +88,7 @@ pub fn log_slice(slice: &[u8], addr: usize) {
     }
 }
 
-#[no_mangle]
-#[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn init_rust_io(tile_id: u32, name: *const i8) {
-    init(tile_id as u64, util::cstr_to_str(name));
-}
-
 /// Initializes the I/O module
-pub fn init(tile_id: u64, name: &str) {
-    arch::serial::init();
+pub fn init(tile_id: TileId, name: &str) {
     log::init(tile_id, name);
 }

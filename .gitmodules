@@ -13,9 +13,13 @@
 [submodule "src/libs/flac"]
 	path = src/libs/flac
 	url = git@github.com:Barkhausen-Institut/m3-flac.git
-[submodule "src/libs/llvmprofile"]
-	path = src/libs/llvmprofile
-	url = git@github.com:Barkhausen-Institut/M3-llvmprofile.git
 [submodule "src/apps/bsdutils"]
 	path = src/apps/bsdutils
 	url = git@github.com:Barkhausen-Institut/m3-bsdcoreutils.git
+[submodule "cross/buildroot"]
+	path = cross/buildroot
+	url = https://git.buildroot.net/buildroot
+[submodule "ninjapie"]
+	path = ninjapie
+	url = git@github.com:Barkhausen-Institut/Ninjapie.git
+

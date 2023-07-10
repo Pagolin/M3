@@ -1,22 +1,26 @@
 <config>
-    <kernel args="kernel -f $fs.path" />
+    <env>M3_GEM5_CFG=config/default.py</env>
+    <mods>
+        <mod name="fs" file="bench.img" />
+    </mods>
+    <kernel args="kernel" />
     <dom>
         <app args="root">
             <dom>
-                <app args="m3fs mem $fs.size" daemon="1">
+                <app args="m3fs mem" daemon="1">
                     <serv name="m3fs" />
-                    <physmem addr="0" size="$fs.size" />
+                    <mod name="fs" />
                 </app>
             </dom>
-            <dom tile="imem+kecacc|core">
+            <dom tile="core+kecacc">
                 <app args="hashmux" daemon="1">
                     <serv name="hash"/>
                 </app>
             </dom>
             <dom>
-                <app args="pager $fs.size" usermem="768M">
+                <app args="pager" usermem="768M">
                     <sess name="m3fs" />
-                    <physmem addr="0" size="$fs.size" perm="r" />
+                    <mod name="fs" perm="r" />
                     <tiles type="core" count="1" />
                     <dom>
                         <app args="/bin/hashmuxbenchs">
@@ -25,14 +29,8 @@
                             <sess lname="hash-bench" gname="hash" />
                             <sess lname="hash-client0" gname="hash" />
                             <sess lname="hash-client1" gname="hash" />
-                            <sess lname="hash-client2" gname="hash" />
-                            <sess lname="hash-client3" gname="hash" />
-                            <sess lname="hash-client4" gname="hash" />
-                            <sess lname="hash-client5" gname="hash" />
-                            <sess lname="hash-client6" gname="hash" />
-                            <sess lname="hash-client7" gname="hash" />
                             <sess lname="hash-latency" gname="hash" />
-                            <tiles type="core" count="8" />
+                            <tiles type="core" count="2" />
                         </app>
                     </dom>
                 </app>

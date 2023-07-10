@@ -26,17 +26,13 @@ constexpr size_t MAX_DESC_LEN = 256;
 static TileDesc desc_with_properties(TileDesc desc, const char *props) {
     char props_cpy[MAX_DESC_LEN];
     if(strlen(props) >= MAX_DESC_LEN)
-        VTHROW(Errors::NO_SPACE, "Tile description too long");
+        vthrow(Errors::NO_SPACE, "Tile description too long"_cf);
     strcpy(props_cpy, props);
 
     auto res = desc;
     char *prop = strtok(props_cpy, "+");
     while(prop != nullptr) {
-        if(strcmp(prop, "imem") == 0)
-            res = TileDesc(TileType::COMP_IMEM, res.isa(), 0);
-        else if(strcmp(prop, "emem") == 0 || strcmp(prop, "vm") == 0)
-            res = TileDesc(TileType::COMP_EMEM, res.isa(), 0);
-        else if(strcmp(prop, "arm") == 0)
+        if(strcmp(prop, "arm") == 0)
             res = TileDesc(res.type(), TileISA::ARM, 0);
         else if(strcmp(prop, "x86") == 0)
             res = TileDesc(res.type(), TileISA::X86, 0);
@@ -48,18 +44,22 @@ static TileDesc desc_with_properties(TileDesc desc, const char *props) {
             res = TileDesc(res.type(), res.isa(), 0, res.attr() | TileAttr::BOOM);
         else if(strcmp(prop, "nic") == 0)
             res = TileDesc(res.type(), res.isa(), 0, res.attr() | TileAttr::NIC);
+        else if(strcmp(prop, "serial") == 0)
+            res = TileDesc(res.type(), res.isa(), 0, res.attr() | TileAttr::SERIAL);
         else if(strcmp(prop, "kecacc") == 0)
             res = TileDesc(res.type(), res.isa(), 0, res.attr() | TileAttr::KECACC);
         else if(strcmp(prop, "indir") == 0)
-            res = TileDesc(TileType::COMP_IMEM, TileISA::ACCEL_INDIR, 0);
+            res = TileDesc(TileType::COMP, TileISA::ACCEL_INDIR, 0, TileAttr::IMEM);
         else if(strcmp(prop, "copy") == 0)
-            res = TileDesc(TileType::COMP_IMEM, TileISA::ACCEL_COPY, 0);
+            res = TileDesc(TileType::COMP, TileISA::ACCEL_COPY, 0, TileAttr::IMEM);
         else if(strcmp(prop, "rot13") == 0)
-            res = TileDesc(TileType::COMP_IMEM, TileISA::ACCEL_ROT13, 0);
+            res = TileDesc(TileType::COMP, TileISA::ACCEL_ROT13, 0, TileAttr::IMEM);
         else if(strcmp(prop, "idedev") == 0)
-            res = TileDesc(TileType::COMP_IMEM, TileISA::IDE_DEV, 0);
+            res = TileDesc(TileType::COMP, TileISA::IDE_DEV, 0, TileAttr::IMEM);
         else if(strcmp(prop, "nicdev") == 0)
-            res = TileDesc(TileType::COMP_IMEM, TileISA::NIC_DEV, 0);
+            res = TileDesc(TileType::COMP, TileISA::NIC_DEV, 0, TileAttr::IMEM);
+        else if(strcmp(prop, "serdev") == 0)
+            res = TileDesc(TileType::COMP, TileISA::SERIAL_DEV, 0, TileAttr::IMEM);
         prop = strtok(NULL, "+");
     }
     return res;
@@ -78,14 +78,14 @@ Tile::~Tile() {
 
 Reference<Tile> Tile::alloc(const TileDesc &desc) {
     capsel_t sel = Activity::own().alloc_sel();
-    TileDesc res = Activity::own().resmng()->alloc_tile(sel, desc);
+    TileDesc res = Activity::own().resmng()->alloc_tile(sel, desc, true);
     return Reference<Tile>(new Tile(sel, res, KEEP_CAP, true));
 }
 
 Reference<Tile> Tile::get(const char *desc) {
     char desc_cpy[MAX_DESC_LEN];
     if(strlen(desc) >= MAX_DESC_LEN)
-        VTHROW(Errors::NO_SPACE, "Properties description too long");
+        vthrow(Errors::NO_SPACE, "Properties description too long"_cf);
     strcpy(desc_cpy, desc);
 
     auto own = Activity::own().tile();
@@ -102,6 +102,14 @@ Reference<Tile> Tile::get(const char *desc) {
             catch(...) {
             }
         }
+        else if(strcmp(props, "compat") == 0) {
+            try {
+                auto type_isa = TileDesc(own->desc().type(), own->desc().isa(), 0);
+                return Tile::alloc(type_isa);
+            }
+            catch(...) {
+            }
+        }
         else {
             auto base = TileDesc(own->desc().type(), own->desc().isa(), 0);
             try {
@@ -112,7 +120,7 @@ Reference<Tile> Tile::get(const char *desc) {
         }
         props = strtok(NULL, "|");
     }
-    VTHROW(Errors::NOT_FOUND, "Unable to find tile with " << desc);
+    vthrow(Errors::NOT_FOUND, "Unable to find tile with {}"_cf, desc);
 }
 
 Reference<Tile> Tile::derive(uint eps, uint64_t time, uint64_t pts) {

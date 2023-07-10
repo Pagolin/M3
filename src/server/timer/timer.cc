@@ -29,7 +29,7 @@ struct TickWorkItem : public WorkItem {
     void work() override {
         auto cur = TimeInstant::now();
         if(cur >= next_tick) {
-            SLOG(TIMER, "Timer tick @ " << cur.as_nanos());
+            SLOG(TIMER, "Timer tick @ {}"_cf, cur.as_nanos());
             server->handler()->broadcast(0);
             next_tick = TimeInstant::now() + interval;
         }
@@ -49,7 +49,7 @@ int main() {
     while(wl.has_items()) {
         auto now = TimeInstant::now();
         if(now > next_tick)
-            Activity::sleep_for(next_tick.duration_since(now));
+            OwnActivity::sleep_for(next_tick.duration_since(now));
 
         wl.tick();
     }

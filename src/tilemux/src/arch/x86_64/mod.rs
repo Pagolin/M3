@@ -17,15 +17,13 @@
  */
 
 use base::cell::StaticCell;
-use base::cpu;
-use base::errors::Error;
-use base::kif::{tilemux, PageFlags};
+use base::kif::tilemux;
 use base::mem::MaybeUninit;
+use base::{read_csr, write_csr};
 
 use core::arch::asm;
 
 use crate::activities;
-use crate::vma;
 
 pub type State = isr::State;
 
@@ -45,20 +43,6 @@ impl Default for FPUState {
             // we init that lazy on the first use of the FPU
             data: unsafe { MaybeUninit::uninit().assume_init() },
             init: false,
-        }
-    }
-}
-
-pub fn init(state: &mut State) {
-    isr::init(state);
-    for i in 0..=65 {
-        match i {
-            7 => isr::reg(i, crate::fpu_ex),
-            14 => isr::reg(i, crate::mmu_pf),
-            63 => isr::reg(i, crate::tmcall),
-            64 => isr::reg(i, crate::ext_irq),
-            65 => isr::reg(i, crate::ext_irq),
-            i => isr::reg(i, crate::unexpected_irq),
         }
     }
 }
@@ -84,14 +68,14 @@ pub fn forget_fpu(act_id: activities::Id) {
 
 pub fn disable_fpu() {
     if activities::cur().id() != FPU_OWNER.get() {
-        cpu::write_cr0(cpu::read_cr0() | CR0_TASK_SWITCHED);
+        write_csr!("cr0", read_csr!("cr0") | CR0_TASK_SWITCHED);
     }
 }
 
 pub fn handle_fpu_ex(_state: &mut State) {
     let mut cur = activities::cur();
 
-    cpu::write_cr0(cpu::read_cr0() & !CR0_TASK_SWITCHED);
+    write_csr!("cr0", read_csr!("cr0") & !CR0_TASK_SWITCHED);
 
     let old_id = FPU_OWNER.get() & 0xFFFF;
     if old_id != cur.id() {
@@ -127,15 +111,4 @@ pub fn handle_fpu_ex(_state: &mut State) {
         // we are owner now
         FPU_OWNER.set(cur.id());
     }
-}
-
-pub fn handle_mmu_pf(state: &mut State) -> Result<(), Error> {
-    let cr2 = cpu::read_cr2();
-
-    let perm =
-        paging::MMUFlags::from_bits_truncate(state.error as paging::MMUPTE & PageFlags::RW.bits());
-    // the access is implicitly no-exec
-    let perm = paging::to_page_flags(0, perm | paging::MMUFlags::NX);
-
-    vma::handle_pf(state, cr2, perm, state.rip)
 }

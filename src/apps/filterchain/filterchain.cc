@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
 
     MemGate mem = MemGate::create_global(memSize, MemGate::RW);
 
-    cout << "Initializing memory...\n";
+    println("Initializing memory..."_cf);
 
     // init memory with random numbers
     uint *buffer = new uint[BUF_SIZE / sizeof(uint)];
@@ -54,10 +54,10 @@ int main(int argc, char **argv) {
     }
     mem.deactivate();
 
-    cout << "Starting filter chain...\n";
+    println("Starting filter chain..."_cf);
 
     // create receiver
-    auto tile2 = Tile::get("clone|own");
+    auto tile2 = Tile::get("compat|own");
     ChildActivity t2(tile2, "receiver");
 
     // create a gate the sender can send to (at the receiver)
@@ -72,23 +72,23 @@ int main(int argc, char **argv) {
     t2.run([] {
         capsel_t rgate_sel;
         Activity::own().data_source() >> rgate_sel;
-        auto rgate = RecvGate::bind(rgate_sel, nextlog2<512>::val, nextlog2<64>::val);
+        auto rgate = RecvGate::bind(rgate_sel);
 
         size_t count, total = 0;
         int finished = 0;
         while(!finished) {
             GateIStream is = receive_vmsg(rgate, count, finished);
 
-            cout << "Got " << count << " data items\n";
+            println("Got {} data items"_cf, count);
 
             reply_vmsg(is, 0);
             total += count;
         }
-        cout << "Got " << total << " items in total\n";
+        println("Got {} items in total"_cf, total);
         return 0;
     });
 
-    auto tile1 = Tile::get("clone|own");
+    auto tile1 = Tile::get("compat|own");
     ChildActivity t1(tile1, "sender");
     t1.delegate_obj(mem.sel());
     t1.delegate_obj(resmem.sel());
@@ -141,6 +141,6 @@ int main(int argc, char **argv) {
     t1.wait();
     t2.wait();
 
-    cout << "Done.\n";
+    println("Done."_cf);
     return 0;
 }

@@ -1,0 +1,12 @@
+[package]
+name = "smoltcp_client"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+path = "./client.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+m3 = { path = "../../libs/rust/m3" }
+local_smoltcp = { path = "../../libs/local_smoltcp", default-features = true}

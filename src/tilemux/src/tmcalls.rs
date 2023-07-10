@@ -22,6 +22,8 @@ use base::tcu::{EpId, INVALID_EP, IRQ};
 use base::time::TimeDuration;
 use base::tmif;
 
+use isr::{ISRArch, ISR};
+
 use crate::activities;
 use crate::irqs;
 use crate::timer;
@@ -66,9 +68,9 @@ fn tmcall_wait(state: &mut arch::State) -> Result<(), Error> {
 }
 
 fn tmcall_stop(state: &mut arch::State) -> Result<(), Error> {
-    let code = state.r[isr::TMC_ARG1] as i32;
+    let code = Code::from(state.r[isr::TMC_ARG1] as u32);
 
-    log!(crate::LOG_CALLS, "tmcall::stop(code={})", code);
+    log!(crate::LOG_CALLS, "tmcall::stop(code={:?})", code);
 
     activities::remove_cur(code);
 
@@ -85,9 +87,9 @@ fn tmcall_yield(_state: &mut arch::State) -> Result<(), Error> {
 }
 
 fn tmcall_map(state: &mut arch::State) -> Result<(), Error> {
-    let virt = state.r[isr::TMC_ARG1] as usize;
+    let virt = state.r[isr::TMC_ARG1];
     let phys = state.r[isr::TMC_ARG2] as goff;
-    let pages = state.r[isr::TMC_ARG3] as usize;
+    let pages = state.r[isr::TMC_ARG3];
     let access = kif::Perm::from_bits_truncate(state.r[isr::TMC_ARG4] as u32);
     let flags = kif::PageFlags::from(access) & kif::PageFlags::RW;
 
@@ -123,7 +125,7 @@ fn tmcall_reg_irq(state: &mut arch::State) -> Result<(), Error> {
 }
 
 fn tmcall_transl_fault(state: &mut arch::State) -> Result<(), Error> {
-    let virt = state.r[isr::TMC_ARG1] as usize;
+    let virt = state.r[isr::TMC_ARG1];
     let access = kif::Perm::from_bits_truncate(state.r[isr::TMC_ARG2] as u32);
     let flags = kif::PageFlags::from(access) & kif::PageFlags::RW;
 
@@ -139,10 +141,24 @@ fn tmcall_transl_fault(state: &mut arch::State) -> Result<(), Error> {
     Ok(())
 }
 
+fn tmcall_init_tls(state: &mut arch::State) -> Result<(), Error> {
+    let virt = state.r[isr::TMC_ARG1];
+
+    log!(
+        crate::LOG_CALLS,
+        "tmcall::tmcall_init_tls(virt={:#x})",
+        virt
+    );
+
+    ISR::init_tls(virt);
+
+    Ok(())
+}
+
 fn tmcall_flush_inv(_state: &mut arch::State) -> Result<(), Error> {
     log!(crate::LOG_CALLS, "tmcall::flush_inv()");
 
-    helper::flush_invalidate();
+    helper::flush_cache();
 
     Ok(())
 }
@@ -154,17 +170,18 @@ fn tmcall_noop(_state: &mut arch::State) -> Result<(), Error> {
 }
 
 pub fn handle_call(state: &mut arch::State) {
-    let call = tmif::Operation::from(state.r[isr::TMC_ARG0] as isize);
+    let call = tmif::Operation::from(state.r[isr::TMC_ARG0]);
 
     let res = match call {
-        tmif::Operation::WAIT => tmcall_wait(state).map(|_| 0isize),
-        tmif::Operation::EXIT => tmcall_stop(state).map(|_| 0isize),
-        tmif::Operation::YIELD => tmcall_yield(state).map(|_| 0isize),
-        tmif::Operation::MAP => tmcall_map(state).map(|_| 0isize),
-        tmif::Operation::REG_IRQ => tmcall_reg_irq(state).map(|_| 0isize),
-        tmif::Operation::TRANSL_FAULT => tmcall_transl_fault(state).map(|_| 0isize),
-        tmif::Operation::FLUSH_INV => tmcall_flush_inv(state).map(|_| 0isize),
-        tmif::Operation::NOOP => tmcall_noop(state).map(|_| 0isize),
+        tmif::Operation::WAIT => tmcall_wait(state),
+        tmif::Operation::EXIT => tmcall_stop(state),
+        tmif::Operation::YIELD => tmcall_yield(state),
+        tmif::Operation::MAP => tmcall_map(state),
+        tmif::Operation::REG_IRQ => tmcall_reg_irq(state),
+        tmif::Operation::TRANSL_FAULT => tmcall_transl_fault(state),
+        tmif::Operation::INIT_TLS => tmcall_init_tls(state),
+        tmif::Operation::FLUSH_INV => tmcall_flush_inv(state),
+        tmif::Operation::NOOP => tmcall_noop(state),
 
         _ => Err(Error::new(Code::NotSup)),
     };
@@ -178,5 +195,8 @@ pub fn handle_call(state: &mut arch::State) {
         );
     }
 
-    state.r[isr::TMC_ARG0] = res.unwrap_or_else(|e| -(e.code() as isize)) as usize;
+    state.r[isr::TMC_ARG0] = match res {
+        Ok(_) => 0,
+        Err(e) => e.code() as usize,
+    };
 }

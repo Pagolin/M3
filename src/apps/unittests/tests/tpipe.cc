@@ -28,7 +28,7 @@ using namespace m3;
 static char buffer[0x100];
 
 static void reader_quit() {
-    auto tile = Tile::get("clone|own");
+    auto tile = Tile::get("compat|own");
     ChildActivity writer(tile, "writer");
     MemGate mem = MemGate::create_global(0x1000, MemGate::RW);
     DirectPipe pipe(Activity::own(), writer, mem, 0x1000);
@@ -40,7 +40,7 @@ static void reader_quit() {
         auto out = Activity::own().files()->get(STDOUT_FD);
         while(1) {
             OStringStream os(buffer, sizeof(buffer));
-            os << "Hello World!\n";
+            format_to(os, "Hello World!\n"_cf);
             if(out->write(buffer, os.length()).unwrap() == 0)
                 break;
         }
@@ -65,7 +65,7 @@ static void reader_quit() {
 }
 
 static void writer_quit() {
-    auto tile = Tile::get("clone|own");
+    auto tile = Tile::get("compat|own");
     ChildActivity reader(tile, "reader");
 
     MemGate mem = MemGate::create_global(64, MemGate::RW);
@@ -91,7 +91,7 @@ static void writer_quit() {
     {
         FStream f(pipe.writer_fd(), FILE_W);
         for(int i = 0; i < 2; ++i)
-            f << "Hello World!\n";
+            println_to(f, "Hello World!"_cf);
     }
 
     pipe.close_writer();
@@ -100,8 +100,8 @@ static void writer_quit() {
 }
 
 static void child_to_child() {
-    auto tile1 = Tile::get("clone|own");
-    auto tile2 = Tile::get("clone|own");
+    auto tile1 = Tile::get("compat|own");
+    auto tile2 = Tile::get("compat|own");
     ChildActivity reader(tile1, "reader");
     ChildActivity writer(tile2, "writer");
     MemGate mem = MemGate::create_global(0x1000, MemGate::RW);
@@ -128,7 +128,7 @@ static void child_to_child() {
         auto out = Activity::own().files()->get(STDOUT_FD);
         for(int i = 0; i < 10; ++i) {
             OStringStream os(buffer, sizeof(buffer));
-            os << "Hello World!\n";
+            format_to(os, "Hello World!\n"_cf);
             out->write(buffer, os.length());
         }
         return 0;

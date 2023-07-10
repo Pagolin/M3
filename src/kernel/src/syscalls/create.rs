@@ -124,7 +124,6 @@ pub fn create_rgate(act: &Rc<Activity>, msg: &'static tcu::Message) -> Result<()
     if !act_caps.unused(r.dst) {
         sysc_err!(Code::InvArgs, "Selector {} already in use", r.dst);
     }
-    #[allow(clippy::absurd_extreme_comparisons)]
     if r.msg_order.checked_add(r.order).is_none()
         || r.msg_order > r.order
         || r.order - r.msg_order >= 32
@@ -330,7 +329,7 @@ pub fn create_activity_async(
     }
 
     let mut kreply = MsgBuf::borrow_def();
-    build_vmsg!(kreply, Code::None, syscalls::CreateActivityReply {
+    build_vmsg!(kreply, Code::Success, syscalls::CreateActivityReply {
         id: nact.id(),
         eps_start: eps,
     });

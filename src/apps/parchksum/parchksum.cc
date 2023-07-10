@@ -36,7 +36,7 @@ struct Worker {
     Worker(RecvGate &rgate, MemGate &mem, size_t offset, size_t size)
         : submem(mem.derive(offset, size)),
           sgate(SendGate::create(&rgate, SendGateArgs().credits(1))),
-          tile(Tile::get("clone|own")),
+          tile(Tile::get("compat|own")),
           act(tile, "worker") {
         act.delegate_obj(submem.sel());
     }
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
                 offset += BUF_SIZE;
                 rem -= BUF_SIZE;
             }
-            cout << "Memory initialization of " << mem_size << " bytes finished\n";
+            println("Memory initialization of {} bytes finished"_cf, mem_size);
             return 0;
         });
     }
@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
                 rem -= BUF_SIZE;
             }
 
-            cout << "Checksum for sub area finished\n";
+            println("Checksum for sub area finished"_cf);
             send_vmsg(sgate, checksum);
             return 0;
         });
@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
         checksum += actchksum;
     }
 
-    cout << "Checksum: " << checksum << "\n";
+    println("Checksum: {}"_cf, checksum);
 
     for(size_t i = 0; i < acts; ++i) {
         worker[i]->act.wait();

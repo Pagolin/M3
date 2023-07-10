@@ -32,7 +32,8 @@ mod vma;
 
 use base::cell::{Ref, StaticCell, StaticRefCell};
 use base::cfg;
-use base::envdata;
+use base::env;
+use base::errors::Code;
 use base::io;
 use base::kif;
 use base::libc;
@@ -42,6 +43,8 @@ use base::mem;
 use base::tcu;
 
 use core::ptr;
+
+use isr::{ISRArch, ISR};
 
 /// Logs errors
 pub const LOG_ERR: bool = true;
@@ -69,15 +72,15 @@ pub const LOG_SQUEUE: bool = false;
 pub const LOG_QUOTAS: bool = false;
 
 extern "C" {
-    fn __m3_init_libc(argc: i32, argv: *const *const u8, envp: *const *const u8);
+    fn __m3_init_libc(argc: i32, argv: *const *const u8, envp: *const *const u8, tls: bool);
     fn __m3_heap_set_area(begin: usize, end: usize);
 }
 
 // the heap area needs to be page-byte aligned
 #[repr(align(4096))]
-struct Heap([u64; 8 * 1024]);
+struct Heap([u64; 1024 * 1024]);
 #[used]
-static mut HEAP: Heap = Heap([0; 8 * 1024]);
+static mut HEAP: Heap = Heap([0; 1024 * 1024]);
 
 pub struct TMEnv {
     tile_id: u64,
@@ -95,7 +98,7 @@ pub fn pex_env() -> Ref<'static, TMEnv> {
     TM_ENV.borrow()
 }
 
-pub fn app_env() -> &'static mut envdata::EnvData {
+pub fn app_env() -> &'static mut env::BaseEnv {
     unsafe { &mut *(cfg::ENV_START as *mut _) }
 }
 
@@ -150,7 +153,7 @@ pub fn reg_timer_reprogram() {
 
 pub extern "C" fn unexpected_irq(state: &mut arch::State) -> *mut libc::c_void {
     log!(LOG_ERR, "Unexpected IRQ with user state:\n{:?}", state);
-    activities::remove_cur(1);
+    activities::remove_cur(Code::Unspecified);
 
     leave(state)
 }
@@ -162,8 +165,9 @@ pub extern "C" fn fpu_ex(state: &mut arch::State) -> *mut libc::c_void {
 }
 
 pub extern "C" fn mmu_pf(state: &mut arch::State) -> *mut libc::c_void {
-    if arch::handle_mmu_pf(state).is_err() {
-        activities::remove_cur(1);
+    let (virt, perm) = ISR::get_pf_info(state);
+    if vma::handle_pf(state, virt, perm).is_err() {
+        activities::remove_cur(Code::Unspecified);
     }
 
     leave(state)
@@ -176,7 +180,7 @@ pub extern "C" fn tmcall(state: &mut arch::State) -> *mut libc::c_void {
 }
 
 pub extern "C" fn ext_irq(state: &mut arch::State) -> *mut libc::c_void {
-    match isr::get_irq() {
+    match ISR::fetch_irq() {
         isr::IRQSource::TCU(tcu::IRQ::TIMER) => {
             activities::cur().consume_time();
             timer::trigger();
@@ -206,23 +210,26 @@ pub extern "C" fn init() -> usize {
     assert!((old_id >> 16) == 0);
 
     // init our own environment; at this point we can still access app_env, because it is mapped by
-    // the gem5 loader for us. afterwards, our address space does not contain that anymore.s
+    // the gem5 loader for us. afterwards, our address space does not contain that anymore.
     {
         let mut env = TM_ENV.borrow_mut();
-        env.tile_id = app_env().tile_id;
-        env.tile_desc = kif::TileDesc::new_from(app_env().tile_desc);
-        env.platform = app_env().platform;
+        env.tile_id = app_env().boot.tile_id;
+        env.tile_desc = kif::TileDesc::new_from(app_env().boot.tile_desc);
+        env.platform = app_env().boot.platform;
     }
 
     unsafe {
-        __m3_init_libc(0, ptr::null(), ptr::null());
+        __m3_init_libc(0, ptr::null(), ptr::null(), false);
         __m3_heap_set_area(
             &HEAP.0 as *const u64 as usize,
             &HEAP.0 as *const u64 as usize + HEAP.0.len() * 8,
         );
     }
 
-    io::init(pex_env().tile_id, "tilemux");
+    io::init(
+        tcu::TileId::new_from_raw(pex_env().tile_id as u16),
+        "tilemux",
+    );
     activities::init();
 
     // switch to idle; we don't want to keep the reference here, because activities::schedule()
@@ -233,9 +240,19 @@ pub extern "C" fn init() -> usize {
     let mut idle = activities::idle();
     let state = idle.user_state();
     let state_top = state as *const _ as usize + mem::size_of::<arch::State>();
-    arch::init(state);
+
+    ISR::init(state);
+    isr::reg_all(unexpected_irq);
+    ISR::reg_tm_calls(tmcall);
+    ISR::reg_page_faults(mmu_pf);
+    #[cfg(any(target_arch = "riscv64", target_arch = "x86_64"))]
+    ISR::reg_illegal_instr(fpu_ex);
+    ISR::reg_core_reqs(ext_irq);
+    ISR::reg_timer(ext_irq);
+    ISR::reg_external(ext_irq);
+
     // store platform already in app env, because we need it for logging
-    app_env().platform = pex_env().platform;
+    app_env().boot.platform = pex_env().platform;
 
     state_top
 }

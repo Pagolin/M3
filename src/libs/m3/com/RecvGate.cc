@@ -54,7 +54,8 @@ INIT_PRIO_RECVGATE RecvGate RecvGate::_default(KIF::INV_SEL,
 void RecvGate::RecvGateWorkItem::work() {
     const TCU::Message *msg = _gate->fetch();
     if(msg) {
-        LLOG(IPC, "Received msg @ " << (void *)msg << " over ep " << _gate->ep());
+        LLOG(IPC, "Received msg @ {} over ep {}"_cf, static_cast<const void *>(msg),
+             _gate->ep()->id());
         GateIStream is(*_gate, msg);
         _gate->_handler(is);
     }
@@ -89,8 +90,8 @@ RecvGate RecvGate::create_named(const char *name) {
     return RecvGate(sel, 0, args.first, args.second, 0);
 }
 
-RecvGate RecvGate::bind(capsel_t cap, uint order, uint msgorder) noexcept {
-    return RecvGate(cap, 0, order, msgorder, KEEP_CAP);
+RecvGate RecvGate::bind(capsel_t cap) noexcept {
+    return RecvGate(cap, 0, 0, 0, KEEP_CAP);
 }
 
 RecvGate::~RecvGate() {
@@ -103,8 +104,17 @@ uintptr_t RecvGate::address() const noexcept {
     return _buf_addr;
 }
 
+void RecvGate::fetch_buffer_size() const {
+    if(_order == 0) {
+        auto size = Syscalls::rgate_buffer(sel());
+        _order = size.first;
+        _msgorder = size.second;
+    }
+}
+
 void RecvGate::activate() {
     if(!this->ep()) {
+        fetch_buffer_size();
         if(_buf == nullptr) {
             _buf = RecvBufs::get().alloc(1UL << _order);
             _buf_addr = _buf->addr();
@@ -140,8 +150,9 @@ void RecvGate::stop() noexcept {
     _workitem.reset();
 }
 
-void RecvGate::wait_for_msg() const {
-    Activity::wait_for_msg(ep()->id());
+void RecvGate::wait_for_msg() {
+    activate();
+    OwnActivity::wait_for_msg(ep()->id());
 }
 
 const TCU::Message *RecvGate::fetch() {
@@ -152,14 +163,15 @@ const TCU::Message *RecvGate::fetch() {
     return nullptr;
 }
 
-bool RecvGate::has_msgs() const {
+bool RecvGate::has_msgs() {
+    activate();
     return TCU::get().has_msgs(ep()->id());
 }
 
-void RecvGate::reply(const MsgBuf &reply, const TCU::Message *msg) {
+void RecvGate::reply_aligned(const void *reply, size_t len, const TCU::Message *msg) {
     size_t msg_off = TCU::msg_to_offset(address(), msg);
-    Errors::Code res = TCU::get().reply(ep()->id(), reply, msg_off);
-    if(EXPECT_FALSE(res != Errors::NONE))
+    Errors::Code res = TCU::get().reply_aligned(ep()->id(), reply, len, msg_off);
+    if(EXPECT_FALSE(res != Errors::SUCCESS))
         throw TCUException(res);
 }
 
@@ -181,7 +193,7 @@ const TCU::Message *RecvGate::receive(SendGate *sgate) {
                                    Errors::EP_INVALID);
         }
 
-        Activity::wait_for_msg(ep()->id());
+        OwnActivity::wait_for_msg(ep()->id());
     }
     UNREACHED;
 }

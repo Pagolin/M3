@@ -15,7 +15,7 @@
  */
 
 use base::cfg;
-use base::errors::Error;
+use base::errors::{Code, Error};
 use base::kif::PageFlags;
 use base::log;
 use base::mem::MsgBuf;
@@ -23,6 +23,8 @@ use base::tcu;
 
 use crate::activities;
 use crate::helper;
+
+use isr::StateArch;
 
 pub struct PfState {
     virt: usize,
@@ -127,7 +129,7 @@ pub fn handle_xlate(virt: usize, perm: PageFlags) {
                 "Unable to handle page fault for {:#x}",
                 virt
             );
-            activities::remove_cur(1);
+            activities::remove_cur(Code::Unspecified);
         }
     }
     // translation worked: let transfer continue
@@ -135,25 +137,20 @@ pub fn handle_xlate(virt: usize, perm: PageFlags) {
         // ensure that we only insert user-accessible pages into the TLB
         if (pte & PageFlags::U.bits()) == 0 {
             log!(crate::LOG_ERR, "No permission to access {:#x}", virt);
-            activities::remove_cur(1);
+            activities::remove_cur(Code::Unspecified);
         }
         else {
-            let phys = pte & !(cfg::PAGE_MASK as u64);
             let flags = PageFlags::from_bits_truncate(pte & cfg::PAGE_MASK as u64);
+            let phys = pte & !(cfg::PAGE_MASK as u64);
             tcu::TCU::insert_tlb(act.id() as u16, virt, phys, flags).unwrap();
         }
     }
 }
 
-pub fn handle_pf(
-    state: &crate::arch::State,
-    virt: usize,
-    perm: PageFlags,
-    ip: usize,
-) -> Result<(), Error> {
+pub fn handle_pf(state: &crate::arch::State, virt: usize, perm: PageFlags) -> Result<(), Error> {
     // TileMux isn't causing PFs
     if !state.came_from_user() {
-        panic!("pagefault for {:#x} at {:#x}", virt, ip);
+        panic!("pagefault for {:#x} at {:#x}", virt, state.instr_pointer());
     }
 
     if let Err(e) = send_pf(activities::cur(), virt, perm) {

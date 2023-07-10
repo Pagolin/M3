@@ -29,7 +29,7 @@ use crate::serialize::{Deserialize, Deserializer, Serialize, Serializer};
 #[repr(u32)]
 pub enum Code {
     // success
-    None = 0,
+    Success = 0,
     // TCU errors
     NoMEP,
     NoSEP,
@@ -84,6 +84,7 @@ pub enum Code {
     Utf8Error,
     BadFd,
     SeekPipe,
+    Unspecified,
     // networking
     InvState,
     WouldBlock,
@@ -98,7 +99,7 @@ pub enum Code {
 
 impl Default for Code {
     fn default() -> Self {
-        Self::None
+        Self::Success
     }
 }
 
@@ -192,7 +193,7 @@ impl Error {
     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{:?} at:", self.code())?;
         for i in 0..self.info.bt_len {
-            writeln!(f, "  {:#x}", self.info.bt[i as usize])?;
+            writeln!(f, "  {:#x}", self.info.bt[i])?;
         }
         Ok(())
     }
@@ -224,10 +225,16 @@ impl Error {
     }
 }
 
+impl From<Error> for Code {
+    fn from(err: Error) -> Self {
+        err.code()
+    }
+}
+
 impl From<Code> for Result<(), Error> {
     fn from(code: Code) -> Self {
         match code {
-            Code::None => Ok(()),
+            Code::Success => Ok(()),
             e => Err(Error::new(e)),
         }
     }
@@ -236,7 +243,7 @@ impl From<Code> for Result<(), Error> {
 impl<T> From<Result<T, Error>> for Code {
     fn from(res: Result<T, Error>) -> Self {
         match res {
-            Ok(_) => Code::None,
+            Ok(_) => Code::Success,
             Err(e) => e.code(),
         }
     }

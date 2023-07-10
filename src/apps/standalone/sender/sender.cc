@@ -14,6 +14,7 @@
  */
 
 #include <base/Common.h>
+#include <base/TCU.h>
 #include <base/stream/Serial.h>
 
 #include "../assert.h"
@@ -30,7 +31,9 @@ static constexpr epid_t REP = TCU::FIRST_USER_EP + 1;
 static uint8_t rbuf[64];
 
 int main() {
-    kernel::TCU::config_send(SEP, 0x1234, tile_id(Tile::T0), DSTEP, nextlog2<MSG_SIZE>::val, 1);
+    auto dst_tile = TILE_IDS[Tile::T0];
+
+    kernel::TCU::config_send(SEP, 0x1234, dst_tile, DSTEP, nextlog2<MSG_SIZE>::val, 1);
     size_t size = nextlog2<sizeof(rbuf)>::val;
     uintptr_t rbuf_addr = reinterpret_cast<uintptr_t>(rbuf);
     kernel::TCU::config_recv(REP, rbuf_addr, size, size, TCU::NO_REPLIES);
@@ -38,14 +41,14 @@ int main() {
     MsgBuf msg;
     msg.cast<uint64_t>() = 0;
 
-    Serial::get() << "Hello World from sender!\n";
+    logln("Hello World from sender!"_cf);
 
     // initial send; wait until receiver is ready
     Errors::Code res;
-    while((res = kernel::TCU::send(SEP, msg, 0x2222, REP)) != Errors::NONE) {
-        Serial::get() << "send failed: " << res << "\n";
+    while((res = kernel::TCU::send(SEP, msg, 0x2222, REP)) != Errors::SUCCESS) {
+        logln("send failed: {}"_cf, res);
         // get credits back
-        kernel::TCU::config_send(SEP, 0x1234, tile_id(Tile::T0), DSTEP, nextlog2<MSG_SIZE>::val, 1);
+        kernel::TCU::config_send(SEP, 0x1234, dst_tile, DSTEP, nextlog2<MSG_SIZE>::val, 1);
     }
 
     for(int count = 0; count < 100000; ++count) {
@@ -56,10 +59,10 @@ int main() {
         ASSERT_EQ(rmsg->label, 0x2222);
 
         // ack reply
-        ASSERT_EQ(kernel::TCU::ack_msg(REP, rbuf_addr, rmsg), Errors::NONE);
+        ASSERT_EQ(kernel::TCU::ack_msg(REP, rbuf_addr, rmsg), Errors::SUCCESS);
 
         // send message
-        ASSERT_EQ(kernel::TCU::send(SEP, msg, 0x2222, REP), Errors::NONE);
+        ASSERT_EQ(kernel::TCU::send(SEP, msg, 0x2222, REP), Errors::SUCCESS);
         msg.cast<uint64_t>() += 1;
     }
     return 0;

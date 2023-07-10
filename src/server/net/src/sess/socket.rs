@@ -24,12 +24,12 @@ use m3::com::{GateIStream, RecvGate, SendGate};
 use m3::errors::{Code, Error};
 use m3::kif::{CapRngDesc, CapType};
 use m3::net::{log_net, IpAddr, NetLogEvent, Port, Sd, SocketArgs, SocketType, MTU};
-use m3::parse;
 use m3::rc::Rc;
 use m3::serialize::M3Deserializer;
 use m3::server::CapExchange;
 use m3::session::{NetworkOp, ServerSession};
 use m3::tcu;
+use m3::util::parse;
 use m3::vfs::OpenFlags;
 use m3::{log, reply_vmsg, vec};
 
@@ -394,7 +394,7 @@ impl SocketSession {
         sock.borrow_mut().bind(crate::own_ip(), port, iface)?;
 
         let addr = to_m3_addr(crate::own_ip());
-        reply_vmsg!(is, Code::None as i32, addr.0, port_no)
+        reply_vmsg!(is, Code::Success, addr.0, port_no)
     }
 
     pub fn listen(
@@ -421,7 +421,7 @@ impl SocketSession {
         sock.borrow_mut().listen(iface, crate::own_ip(), port)?;
 
         let addr = to_m3_addr(crate::own_ip());
-        reply_vmsg!(is, Code::None as i32, addr.0)
+        reply_vmsg!(is, Code::Success, addr.0)
     }
 
     pub fn connect(
@@ -450,7 +450,7 @@ impl SocketSession {
             .connect(remote_addr, remote_port, local_port, iface)?;
 
         let addr = to_m3_addr(crate::own_ip());
-        reply_vmsg!(is, Code::None as i32, addr.0, port_no)
+        reply_vmsg!(is, Code::Success, addr.0, port_no)
     }
 
     pub fn abort(
@@ -462,7 +462,7 @@ impl SocketSession {
         let remove: bool = is.pop()?;
 
         self.do_abort(sd, remove, iface)?;
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
     pub fn close(&mut self, iface: &mut DriverInterface<'_>) -> Result<(), Error> {
@@ -512,7 +512,7 @@ impl SocketSession {
                 }
 
                 // receive everything in the channel
-                while let Some(event) = chan.receive_event() {
+                while let Some(event) = chan.fetch_event() {
                     if sock.process_event(sess, iface, event) {
                         needs_recheck = true;
                         continue 'outer_loop;

@@ -23,7 +23,7 @@ use base::mem::size_of;
 use base::rc::Rc;
 use core::cmp;
 use core::fmt;
-use core::ptr::{NonNull, Unique};
+use core::ptr::NonNull;
 
 use crate::cap::{EPObject, GateEP, KObject};
 use crate::ktcu;
@@ -77,7 +77,7 @@ pub struct CapTable {
 }
 
 unsafe fn as_shared<T>(obj: &mut T) -> NonNull<T> {
-    NonNull::from(Unique::new_unchecked(obj as *mut T))
+    NonNull::new_unchecked(obj as *mut T)
 }
 
 impl Default for CapTable {
@@ -298,10 +298,6 @@ impl Capability {
 
     pub fn get(&self) -> &KObject {
         &self.obj
-    }
-
-    pub fn get_mut(&mut self) -> &mut KObject {
-        &mut self.obj
     }
 
     pub fn has_parent(&self) -> bool {

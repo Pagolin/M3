@@ -32,13 +32,10 @@ WorkItem::~WorkItem() {
 }
 
 WorkLoop::~WorkLoop() {
-#if defined(__gem5__)
     RecvGate::upcall().stop();
-#endif
 }
 
 void WorkLoop::multithreaded(UNUSED uint count) {
-#if defined(__gem5__)
     RecvGate::upcall().start(this, [](GateIStream &is) {
         auto &msg = reinterpret_cast<const KIF::Upcall::DefaultUpcall &>(is.message().data);
 
@@ -46,13 +43,12 @@ void WorkLoop::multithreaded(UNUSED uint count) {
 
         MsgBuf reply_buf;
         auto &reply = reply_buf.cast<KIF::DefaultReply>();
-        reply.error = Errors::NONE;
+        reply.error = Errors::SUCCESS;
         reply_msg(is, reply_buf);
     });
 
     for(uint i = 0; i < count; ++i)
         new Thread(thread_startup, this);
-#endif
 }
 
 void WorkLoop::thread_startup(void *arg) {
@@ -66,7 +62,7 @@ void WorkLoop::thread_shutdown() {
     // first wait until we have no threads left that wait for some event
     ThreadManager &tm = ThreadManager::get();
     while(tm.get().blocked_count() > 0) {
-        Activity::sleep();
+        OwnActivity::sleep();
 
         tick();
 
@@ -106,7 +102,7 @@ void WorkLoop::tick() {
 
 void WorkLoop::run() {
     while(has_items()) {
-        Activity::sleep();
+        OwnActivity::sleep();
 
         tick();
 

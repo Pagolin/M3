@@ -21,13 +21,71 @@
 use core::iter;
 use core::ops::FnOnce;
 
-use crate::arch;
+use derivative::Derivative;
+
 use crate::boxed::Box;
 use crate::cell::LazyStaticRefCell;
+use crate::cfg;
 use crate::col::{String, ToString, Vec};
 use crate::format;
 use crate::mem;
 use crate::util;
+
+int_enum! {
+    pub struct Platform : u64 {
+        const GEM5 = 0;
+        const HW = 1;
+    }
+}
+
+#[derive(Copy, Clone, Derivative, Debug)]
+#[derivative(Default)]
+#[repr(C)]
+pub struct BootEnv {
+    pub platform: u64,
+    pub tile_id: u64,
+    pub tile_desc: u64,
+    pub argc: u64,
+    pub argv: u64,
+    pub envp: u64,
+    pub kenv: u64,
+    pub raw_tile_count: u64,
+    #[derivative(Default(value = "[0u64; cfg::MAX_TILES * cfg::MAX_CHIPS]"))]
+    pub raw_tile_ids: [u64; cfg::MAX_TILES * cfg::MAX_CHIPS],
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+#[repr(C)]
+pub struct BaseEnv {
+    pub boot: BootEnv,
+
+    pub shared: u64,
+    pub sp: u64,
+    pub entry: u64,
+    pub closure: u64,
+    pub heap_size: u64,
+    pub first_std_ep: u64,
+    pub first_sel: u64,
+    pub act_id: u64,
+
+    pub rmng_sel: u64,
+    pub pager_sess: u64,
+    pub pager_sgate: u64,
+
+    pub mounts_addr: u64,
+    pub mounts_len: u64,
+
+    pub fds_addr: u64,
+    pub fds_len: u64,
+
+    pub data_addr: u64,
+    pub data_len: u64,
+}
+
+pub fn boot() -> &'static BootEnv {
+    // safety: the cast is okay because we trust our loader to put the environment at that place
+    unsafe { &*(cfg::ENV_START as *const _) }
+}
 
 /// The closure used by `Activity::run`
 pub struct Closure {
@@ -70,7 +128,7 @@ impl Args {
     fn arg(self, idx: isize) -> &'static str {
         // safety: we assume that our loader has put valid strings at argv
         unsafe {
-            let args = arch::envdata::get().argv as *const u64;
+            let args = boot().argv as *const u64;
             let arg = *args.offset(idx);
             util::cstr_to_str(arg as *const i8)
         }
@@ -83,7 +141,7 @@ impl Args {
 
     /// Returns the number of arguments
     pub fn len(self) -> usize {
-        arch::envdata::get().argc as usize
+        boot().argc as usize
     }
 }
 
@@ -91,7 +149,7 @@ impl iter::Iterator for Args {
     type Item = &'static str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pos < arch::envdata::get().argc as isize {
+        if self.pos < boot().argc as isize {
             let arg = self.arg(self.pos);
             self.pos += 1;
             Some(arg)
@@ -125,7 +183,7 @@ impl iter::Iterator for Vars {
     type Item = &'static str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let args = arch::envdata::get().envp as *const u64;
+        let args = boot().envp as *const u64;
         if args.is_null() {
             return None;
         }
@@ -189,7 +247,7 @@ pub fn vars() -> Vec<(String, String)> {
 }
 
 /// Returns the environment-variable iterator, containing each variable as a single string in the
-/// form of <key>=<value>.
+/// form of `key`=`value`.
 pub fn vars_raw() -> Vec<String> {
     if VARS.is_some() {
         VARS.borrow().iter().map(|p| p.to_string()).collect()

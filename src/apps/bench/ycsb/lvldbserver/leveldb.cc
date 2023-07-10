@@ -33,34 +33,41 @@
 using namespace m3;
 
 int main(int argc, char **argv) {
-    if(argc != 5 && argc != 7) {
-        cerr << "Usage: " << argv[0] << " <db> <repeats> tcp <port>\n";
-        cerr << "Usage: " << argv[0] << " <db> <repeats> udp <ip> <port> <workload>\n";
+    if(argc != 4 && argc != 5 && argc != 7) {
+        eprintln("Usage: {} <db> <repeats> tcp <port>"_cf, argv[0]);
+        eprintln("Usage: {} <db> <repeats> tcu"_cf, argv[0]);
+        eprintln("Usage: {} <db> <repeats> udp <ip> <port> <workload>"_cf, argv[0]);
         return 1;
     }
 
-    VFS::mount("/", "m3fs", "m3fs");
+    NetworkManager *net = nullptr;
 
-    NetworkManager net("net");
+    VFS::mount("/", "m3fs", "m3fs");
 
     const char *file = argv[1];
     int repeats = IStringStream::read_from<int>(argv[2]);
 
     Executor *exec = Executor::create(file);
 
+    println("Creating handler {}..."_cf, argv[3]);
+
     OpHandler *hdl;
     if(strcmp(argv[3], "tcp") == 0) {
         port_t port = IStringStream::read_from<port_t>(argv[4]);
-        hdl = new TCPOpHandler(net, port);
+        net = new NetworkManager("net");
+        hdl = new TCPOpHandler(*net, port);
     }
-    else {
+    else if(strcmp(argv[3], "udp") == 0) {
         IpAddr ip = IStringStream::read_from<IpAddr>(argv[4]);
         port_t port = IStringStream::read_from<port_t>(argv[5]);
         const char *workload = argv[6];
-        hdl = new UDPOpHandler(net, workload, ip, port);
+        net = new NetworkManager("net");
+        hdl = new UDPOpHandler(*net, workload, ip, port);
     }
+    else
+        hdl = new TCUOpHandler();
 
-    cout << "Starting Benchmark:\n";
+    println("Starting Benchmark:"_cf);
 
     Results<TimeDuration> res(static_cast<size_t>(repeats));
     for(int i = 0; i < repeats; ++i) {
@@ -82,7 +89,7 @@ int main(int argc, char **argv) {
             }
 
             if((opcounter % 100) == 0)
-                cout << "Op=" << pkg.op << " @ " << opcounter << "\n";
+                println("Op={} @ {}"_cf, pkg.op, opcounter);
 
             size_t res_bytes = exec->execute(pkg);
 
@@ -93,17 +100,20 @@ int main(int argc, char **argv) {
         }
 
         auto end = TimeInstant::now();
-        cout << "Systemtime: " << (__m3_sysc_systime() / 1000) << " us\n";
-        cout << "Totaltime: " << end.duration_since(start).as_micros() << " us\n";
+        println("Systemtime: {} us"_cf, __m3_sysc_systime() / 1000);
+        println("Totaltime: {} us"_cf, end.duration_since(start).as_micros());
 
-        cout << "Server Side:\n";
+        println("Server Side:"_cf);
         exec->print_stats(opcounter);
         res.push(end.duration_since(start));
     }
 
-    WVPERF("YCSB with " << argv[3], res);
+    auto name = OStringStream();
+    format_to(name, "YCSB with {}"_cf, argv[3]);
+    WVPERF(name.str(), res);
 
     delete hdl;
+    delete net;
 
     return 0;
 }

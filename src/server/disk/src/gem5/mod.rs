@@ -23,22 +23,22 @@ use m3::errors::Error;
 use m3::session::DiskOperation;
 
 use self::ctrl::DEVICE_COUNT;
-use crate::backend::BlockDeviceTrait;
+use crate::backend::BlockDevice;
 use crate::partition::{Partition, PART_COUNT};
 
 #[derive(Clone, Copy)]
 pub struct PartDesc {
-    pub chan: u8,
-    pub device: u8,
-    pub part: Partition,
+    chan: u8,
+    device: u8,
+    part: Partition,
 }
 
-pub struct BlockDevice {
+pub struct IDEBlockDevice {
     ide_ctrl: ctrl::IDEController,
     devs: [Option<PartDesc>; DEVICE_COUNT * PART_COUNT],
 }
 
-impl BlockDevice {
+impl IDEBlockDevice {
     pub fn new(args: Vec<&str>) -> Result<Self, Error> {
         let mut use_dma = false;
         let mut use_irq = false;
@@ -57,8 +57,8 @@ impl BlockDevice {
         for c in ide_ctrl.channel() {
             for d in c.devices() {
                 for p in d.partitions() {
-                    if p.present {
-                        devs[d.id() as usize * PART_COUNT + p.id] = Some(PartDesc {
+                    if p.present() {
+                        devs[d.id() as usize * PART_COUNT + p.id()] = Some(PartDesc {
                             chan: c.id(),
                             device: d.id(),
                             part: *p,
@@ -68,11 +68,11 @@ impl BlockDevice {
             }
         }
 
-        Ok(BlockDevice { ide_ctrl, devs })
+        Ok(IDEBlockDevice { ide_ctrl, devs })
     }
 }
 
-impl BlockDeviceTrait for BlockDevice {
+impl BlockDevice for IDEBlockDevice {
     fn partition_exists(&self, part: usize) -> bool {
         part < self.devs.len() && self.devs[part].is_some()
     }

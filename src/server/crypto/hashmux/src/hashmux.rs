@@ -87,7 +87,7 @@ static STATES: StaticRefCell<[KecAccState; MAX_SESSIONS]> =
 /// Amount of bytes that may be directly returned as part of the TCU reply.
 /// Must also fit into [`MsgBuf::borrow_def()`].
 const MAX_DIRECT_SIZE: usize = HashAlgorithm::MAX_OUTPUT_BYTES;
-const_assert!(max_direct_size_fits_in_buf; MAX_DIRECT_SIZE <= BUFFER_SIZE);
+const_assert!(MAX_DIRECT_SIZE <= BUFFER_SIZE);
 
 static RECV: LazyReadOnlyCell<HashMuxReceiver> = LazyReadOnlyCell::default();
 static QUEUE: LazyStaticRefCell<VecDeque<SessId>> = LazyStaticRefCell::default();
@@ -256,7 +256,7 @@ impl HashSession {
         let res = loop_double_buffer(|buf, _| {
             let n = req.take_buffer_size();
             if n == 0 {
-                return Err(Error::new(Code::None)); // Done
+                return Err(Error::new(Code::Success)); // Done
             }
 
             self.mgate.read_bytes(buf.as_mut_ptr(), n, req.off as u64)?;
@@ -304,7 +304,7 @@ impl HashSession {
                 // Still need to write back the last buffer
                 KECACC.poll_complete();
                 self.mgate.write_bytes(lbuf.as_ptr(), ln, req.off as u64)?;
-                return Err(Error::new(Code::None)); // Done
+                return Err(Error::new(Code::Success)); // Done
             }
 
             // Start squeezing *new* buffer and write back the *last* buffer
@@ -355,7 +355,7 @@ impl HashSession {
                 req.reply(e.code());
                 self.remaining_time = timer.finish();
 
-                if e.code() == Code::None {
+                if e.code() == Code::Success {
                     log!(
                         LOG_DEF,
                         "[{}] hash::work() done, remaining time {}",
@@ -452,7 +452,7 @@ impl HashSession {
         self.algo = Some(algo);
         self.state_saved = false;
         self.output_bytes = 0;
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
     /// Queue a new request for the client and mark client as ready and perhaps
@@ -466,7 +466,7 @@ impl HashSession {
         }
         else {
             // This is weird but not strictly wrong, just return immediately
-            req.reply(Code::None);
+            req.reply(Code::Success);
         }
         Ok(())
     }
@@ -692,7 +692,7 @@ impl Handler<HashSession> for HashHandler {
 
 impl HashMuxReceiver {
     fn has_messages(&self) -> bool {
-        self.reqhdl.recv_gate().has_msgs() || self.server.rgate().has_msgs()
+        self.reqhdl.recv_gate().has_msgs().unwrap() || self.server.rgate().has_msgs().unwrap()
     }
 
     fn handle_messages(&self, hdl: &mut HashHandler) -> Result<(), Error> {
@@ -704,7 +704,7 @@ impl HashMuxReceiver {
 }
 
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let mut hdl = HashHandler {
         sessions: SessionContainer::new(MAX_SESSIONS),
         current: None,
@@ -740,5 +740,6 @@ pub fn main() -> i32 {
         Ok(())
     })
     .ok();
-    0
+
+    Ok(())
 }

@@ -22,28 +22,31 @@ static constexpr epid_t SEP = TCU::FIRST_USER_EP + 1;
 static constexpr epid_t REP = TCU::FIRST_USER_EP + 2;
 
 static void test_inv_ep() {
+    auto own_tile = TileId::from_raw(bootenv()->tile_id);
+    auto mem_tile = TILE_IDS[Tile::MEM];
+
     char rbuffer[32];
     uintptr_t buf = reinterpret_cast<uintptr_t>(&rbuffer);
 
     MsgBuf msg;
     msg.cast<uint64_t>() = 0xDEAD'BEEF;
 
-    Serial::get() << "force invalidation\n";
+    logln("force invalidation"_cf);
     {
         uint64_t data;
-        kernel::TCU::config_mem(MEP, tile_id(Tile::MEM), 0x1000, sizeof(data), TCU::R);
+        kernel::TCU::config_mem(MEP, mem_tile, 0x40000000, sizeof(data), TCU::R);
         kernel::TCU::config_recv(REP, buf, 5 /* 32 */, 5 /* 32 */, TCU::INVALID_EP, 0, 0);
-        kernel::TCU::config_send(SEP, 0x5678, tile_id(Tile::T0), REP, 5 /* 32 */, 1);
+        kernel::TCU::config_send(SEP, 0x5678, own_tile, REP, 5 /* 32 */, 1);
 
         // here everything still works
-        ASSERT_EQ(kernel::TCU::read(MEP, &data, sizeof(data), 0), Errors::NONE);
+        ASSERT_EQ(kernel::TCU::read(MEP, &data, sizeof(data), 0), Errors::SUCCESS);
         ASSERT_EQ(kernel::TCU::ack_msg(REP, buf, reinterpret_cast<const m3::TCU::Message *>(buf)),
-                  Errors::NONE);
+                  Errors::SUCCESS);
         ASSERT_EQ(m3::TCU::get().is_valid(SEP), true);
 
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), MEP, true), Errors::NONE);
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), SEP, true), Errors::NONE);
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), REP, true), Errors::NONE);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, MEP, true), Errors::SUCCESS);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, SEP, true), Errors::SUCCESS);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, REP, true), Errors::SUCCESS);
 
         // now the EPs are invalid
         ASSERT_EQ(kernel::TCU::read(MEP, &data, sizeof(data), 0), Errors::NO_MEP);
@@ -52,36 +55,35 @@ static void test_inv_ep() {
         ASSERT_EQ(kernel::TCU::send(SEP, msg, 0x5678, TCU::NO_REPLIES), Errors::NO_SEP);
 
         // invalidating again should work as well
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), MEP, true), Errors::NONE);
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), SEP, true), Errors::NONE);
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), REP, true), Errors::NONE);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, MEP, true), Errors::SUCCESS);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, SEP, true), Errors::SUCCESS);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, REP, true), Errors::SUCCESS);
     }
 
-    Serial::get() << "non-force send EP invalidation\n";
+    logln("non-force send EP invalidation"_cf);
     {
-        kernel::TCU::config_recv(REP, buf, 5 /* 32 */, 5 /* 32 */, TCU::INVALID_EP, 0, 0);
-        kernel::TCU::config_send(SEP, 0x5678, tile_id(Tile::T0), REP, 5 /* 32 */, 1);
+        kernel::TCU::config_recv(REP, buf, 6 /* 64 */, 6 /* 64 */, TCU::INVALID_EP, 0, 0);
+        kernel::TCU::config_send(SEP, 0x5678, own_tile, REP, 6 /* 64 */, 1);
 
         // if credits are missing, we can't invalidate it (with force=0)
-        ASSERT_EQ(kernel::TCU::send(SEP, msg, 0x5678, TCU::NO_REPLIES), Errors::NONE);
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), SEP, false),
-                  Errors::NO_CREDITS);
+        ASSERT_EQ(kernel::TCU::send(SEP, msg, 0x5678, TCU::NO_REPLIES), Errors::SUCCESS);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, SEP, false), Errors::NO_CREDITS);
         ASSERT_EQ(kernel::TCU::send(SEP, msg, 0x5678, TCU::NO_REPLIES), Errors::NO_CREDITS);
 
         // with all credits, we can invalidate
-        kernel::TCU::config_send(SEP, 0x5678, tile_id(Tile::T0), 2, 5 /* 32 */, 1);
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), SEP, false), Errors::NONE);
+        kernel::TCU::config_send(SEP, 0x5678, own_tile, 2, 6 /* 64 */, 1);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, SEP, false), Errors::SUCCESS);
         ASSERT_EQ(kernel::TCU::send(SEP, msg, 0x5678, TCU::NO_REPLIES), Errors::NO_SEP);
     }
 
-    Serial::get() << "non-force receive EP invalidation\n";
+    logln("non-force receive EP invalidation"_cf);
     {
         kernel::TCU::config_recv(REP, buf, 5 /* 32 */, 5 /* 32 */, TCU::INVALID_EP, 0x1, 0x1);
 
         // invalidation gives us the unread mask
         uint32_t unread;
-        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(tile_id(Tile::T0), REP, false, &unread),
-                  Errors::NONE);
+        ASSERT_EQ(kernel::TCU::invalidate_ep_remote(own_tile, REP, false, &unread),
+                  Errors::SUCCESS);
         ASSERT_EQ(unread, 0x1);
 
         // EP is invalid

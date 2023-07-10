@@ -21,21 +21,11 @@
 #include <base/Env.h>
 #include <base/stream/Serial.h>
 
-// on the host, we need a lock here because of a race between the TCU-thread and CPU-thread
-#if defined(__host__)
-#    define LOCK()   m3::env()->log_lock()
-#    define UNLOCK() m3::env()->log_unlock()
-#else
-#    define LOCK()
-#    define UNLOCK()
-#endif
-
-#define LOG(cls, lvl, expr)                    \
-    do {                                       \
-        if(m3::cls::level & (m3::cls::lvl)) {  \
-            LOCK();                            \
-            m3::Serial::get() << expr << '\n'; \
-            UNLOCK();                          \
-        }                                      \
-    }                                          \
+#define LOG(cls, lvl, fmt, ...)                                                \
+    do {                                                                       \
+        if(m3::cls::level & (m3::cls::lvl)) {                                  \
+            m3::detail::format_rec<0, 0>(fmt, m3::Serial::get(), __VA_ARGS__); \
+            m3::Serial::get().write('\n');                                     \
+        }                                                                      \
+    }                                                                          \
     while(0)

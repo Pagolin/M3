@@ -15,8 +15,8 @@
 
 //! Contains the interface between applications and TileMux
 
-use crate::arch::tmabi;
-use crate::errors::Error;
+use crate::arch::{TMABIOps, TMABI};
+use crate::errors::{Code, Error};
 use crate::goff;
 use crate::kif;
 use crate::tcu::{EpId, INVALID_EP};
@@ -28,7 +28,7 @@ pub const INVALID_IRQ: IRQId = !0;
 
 int_enum! {
     /// The operations TileMux supports
-    pub struct Operation : isize {
+    pub struct Operation : usize {
         /// Wait for an event, optionally with timeout
         const WAIT          = 0x0;
         /// Exit the application
@@ -43,17 +43,15 @@ int_enum! {
         const TRANSL_FAULT  = 0x5;
         /// Flush and invalidate cache
         const FLUSH_INV     = 0x6;
+        /// Initializes thread-local storage (x86 only)
+        const INIT_TLS      = 0x7;
         /// Noop operation for testing purposes
-        const NOOP          = 0x7;
+        const NOOP          = 0x8;
     }
 }
 
-#[cfg(not(target_vendor = "host"))]
-pub(crate) fn get_result(res: isize) -> Result<usize, Error> {
-    match res {
-        e if e < 0 => Err(Error::from(-e as u32)),
-        val => Ok(val as usize),
-    }
+pub(crate) fn get_result(res: usize) -> Result<(), Error> {
+    Result::from(Code::from(res as u32))
 }
 
 #[inline(always)]
@@ -62,7 +60,7 @@ pub fn wait(
     irq: Option<IRQId>,
     duration: Option<TimeDuration>,
 ) -> Result<(), Error> {
-    tmabi::call3(
+    TMABI::call3(
         Operation::WAIT,
         ep.unwrap_or(INVALID_EP) as usize,
         irq.unwrap_or(INVALID_IRQ) as usize,
@@ -74,36 +72,35 @@ pub fn wait(
     .map(|_| ())
 }
 
-pub fn exit(code: i32) -> ! {
-    tmabi::call1(Operation::EXIT, code as usize).ok();
+pub fn exit(code: Code) -> ! {
+    TMABI::call1(Operation::EXIT, code as usize).ok();
     unreachable!();
 }
 
 pub fn map(virt: usize, phys: goff, pages: usize, access: kif::Perm) -> Result<(), Error> {
-    tmabi::call4(
+    TMABI::call4(
         Operation::MAP,
         virt,
         phys as usize,
         pages,
         access.bits() as usize,
     )
-    .map(|_| ())
 }
 
 pub fn reg_irq(irq: IRQId) -> Result<(), Error> {
-    tmabi::call1(Operation::REG_IRQ, irq as usize).map(|_| ())
+    TMABI::call1(Operation::REG_IRQ, irq as usize)
 }
 
 pub fn flush_invalidate() -> Result<(), Error> {
-    tmabi::call1(Operation::FLUSH_INV, 0).map(|_| ())
+    TMABI::call1(Operation::FLUSH_INV, 0)
 }
 
 #[inline(always)]
 pub fn switch_activity() -> Result<(), Error> {
-    tmabi::call1(Operation::YIELD, 0).map(|_| ())
+    TMABI::call1(Operation::YIELD, 0)
 }
 
 #[inline(always)]
 pub fn noop() -> Result<(), Error> {
-    tmabi::call1(Operation::NOOP, 0).map(|_| ())
+    TMABI::call1(Operation::NOOP, 0)
 }

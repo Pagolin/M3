@@ -19,18 +19,18 @@
 use m3::cap::Selector;
 use m3::cfg::PAGE_SIZE;
 use m3::com::{MemGate, RecvGate, SendGate};
-use m3::cpu;
+use m3::cpu::{CPUOps, CPU};
 use m3::errors::{Code, Error};
 use m3::goff;
 use m3::kif::syscalls::{ActivityOp, SemOp};
 use m3::kif::{CapRngDesc, CapType, Perm, INVALID_SEL, SEL_ACT, SEL_KMEM, SEL_TILE};
-use m3::math;
 use m3::server::{Handler, Server, SessId, SessionContainer};
 use m3::session::{ServerSession, M3FS};
 use m3::syscalls;
 use m3::tcu::{AVAIL_EPS, FIRST_USER_EP, TOTAL_EPS};
 use m3::test::WvTester;
 use m3::tiles::{Activity, ActivityArgs, ChildActivity, Tile};
+use m3::util::math;
 use m3::{wv_assert, wv_assert_eq, wv_assert_err, wv_assert_ok, wv_run_test};
 
 pub fn run(t: &mut dyn WvTester) {
@@ -65,7 +65,7 @@ pub fn run(t: &mut dyn WvTester) {
 
 fn create_srv(t: &mut dyn WvTester) {
     let sel = Activity::own().alloc_sel();
-    let mut rgate = wv_assert_ok!(RecvGate::new(10, 10));
+    let rgate = wv_assert_ok!(RecvGate::new(10, 10));
 
     // invalid dest selector
     wv_assert_err!(
@@ -156,7 +156,7 @@ fn create_mgate(t: &mut dyn WvTester) {
             Code::InvArgs
         );
         // and respect the permissions
-        let addr = cpu::stack_pointer() as goff;
+        let addr = CPU::stack_pointer() as goff;
         let addr = math::round_dn(addr, PAGE_SIZE as goff);
         wv_assert_err!(
             t,
@@ -196,7 +196,6 @@ fn create_mgate(t: &mut dyn WvTester) {
     }
 
     // the TCU region is off limits
-    #[cfg(not(target_vendor = "host"))]
     wv_assert_err!(
         t,
         syscalls::create_mgate(
@@ -227,7 +226,7 @@ fn create_rgate(t: &mut dyn WvTester) {
 
 fn create_sess(t: &mut dyn WvTester) {
     let srv = Activity::own().alloc_sel();
-    let mut rgate = wv_assert_ok!(RecvGate::new(10, 10));
+    let rgate = wv_assert_ok!(RecvGate::new(10, 10));
     wv_assert_ok!(rgate.activate());
     wv_assert_ok!(syscalls::create_srv(srv, rgate.sel(), "test", 0,));
 
@@ -250,7 +249,7 @@ fn create_sess(t: &mut dyn WvTester) {
     // calls are implicitly done with Activity::own() and we cannot exchange caps with ourself.
     // thus, we create a child activity, delegate the cap to it, delegate it back to ourself and try
     // to create a session with it afterwards.
-    let child_tile = wv_assert_ok!(Tile::get("clone"));
+    let child_tile = wv_assert_ok!(Tile::get("compat"));
     let child_act = wv_assert_ok!(ChildActivity::new_with(
         child_tile,
         ActivityArgs::new("tmp")
@@ -273,7 +272,6 @@ fn create_sess(t: &mut dyn WvTester) {
     ));
 }
 
-#[allow(clippy::cognitive_complexity)]
 fn create_map(t: &mut dyn WvTester) {
     if !Activity::own().tile_desc().has_virtmem() {
         return;
@@ -344,12 +342,11 @@ fn create_map(t: &mut dyn WvTester) {
     );
 }
 
-#[allow(clippy::cognitive_complexity)]
 fn create_activity(t: &mut dyn WvTester) {
     let sels = Activity::own().alloc_sels(3);
     let kmem = Activity::own().kmem().sel();
 
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
 
     // invalid dest selector
     wv_assert_err!(
@@ -407,7 +404,7 @@ fn alloc_ep(t: &mut dyn WvTester) {
     // try to use the EP object after the activity we allocated it for is gone
     {
         {
-            let tile = wv_assert_ok!(Tile::get("clone"));
+            let tile = wv_assert_ok!(Tile::get("compat"));
             let act = wv_assert_ok!(ChildActivity::new_with(tile, ActivityArgs::new("test")));
             wv_assert_ok!(syscalls::alloc_ep(sel, act.sel(), TOTAL_EPS, 1));
         }
@@ -446,7 +443,6 @@ fn alloc_ep(t: &mut dyn WvTester) {
 
     // any EP
     let ep = wv_assert_ok!(syscalls::alloc_ep(sel, Activity::own().sel(), TOTAL_EPS, 1));
-    #[cfg(not(target_vendor = "host"))]
     wv_assert!(t, ep >= FIRST_USER_EP);
     wv_assert!(t, ep < TOTAL_EPS);
     wv_assert_ok!(Activity::own().revoke(CapRngDesc::new(CapType::OBJECT, sel, 1), false));
@@ -481,7 +477,12 @@ fn alloc_ep(t: &mut dyn WvTester) {
     );
 
     // not enough quota
-    let ep_quota = Activity::own().tile().quota().unwrap().endpoints().left();
+    let ep_quota = Activity::own()
+        .tile()
+        .quota()
+        .unwrap()
+        .endpoints()
+        .remaining();
     wv_assert_err!(
         t,
         syscalls::alloc_ep(sel, Activity::own().sel(), TOTAL_EPS, ep_quota + 1),
@@ -496,7 +497,7 @@ fn activate(t: &mut dyn WvTester) {
     let ep4 = wv_assert_ok!(Activity::own().epmng_mut().acquire(2));
     let sel = Activity::own().alloc_sel();
     let mgate = wv_assert_ok!(MemGate::new(0x1000, Perm::RW));
-    let mut rgate = wv_assert_ok!(RecvGate::new(5, 5));
+    let rgate = wv_assert_ok!(RecvGate::new(5, 5));
     let sgate = wv_assert_ok!(SendGate::new(&rgate));
 
     // invalid EP sel
@@ -637,7 +638,7 @@ fn derive_mem(t: &mut dyn WvTester) {
 
 fn derive_kmem(t: &mut dyn WvTester) {
     let sel = Activity::own().alloc_sel();
-    let quota = wv_assert_ok!(Activity::own().kmem().quota()).left();
+    let quota = wv_assert_ok!(Activity::own().kmem().quota()).remaining();
 
     // invalid dest selector
     wv_assert_err!(
@@ -661,26 +662,26 @@ fn derive_kmem(t: &mut dyn WvTester) {
     // do that test twice, because we might cause pagefaults during the first test, changing the
     // kernel memory quota (our pager shares the kmem with us).
     for i in 0..=1 {
-        let before = wv_assert_ok!(Activity::own().kmem().quota()).left();
+        let before = wv_assert_ok!(Activity::own().kmem().quota()).remaining();
         // transfer memory
         {
             let kmem2 = wv_assert_ok!(Activity::own().kmem().derive(before / 2));
-            let quota2 = wv_assert_ok!(kmem2.quota()).left();
-            let nquota = wv_assert_ok!(Activity::own().kmem().quota()).left();
+            let quota2 = wv_assert_ok!(kmem2.quota()).remaining();
+            let nquota = wv_assert_ok!(Activity::own().kmem().quota()).remaining();
             wv_assert_eq!(t, quota2, before / 2);
             // we don't know exactly, because we have paid for the new cap and kobject too
             wv_assert!(t, nquota <= before / 2);
         }
         // only do the check in the second test where no pagefaults should occur
         if i == 1 {
-            let nquota = wv_assert_ok!(Activity::own().kmem().quota()).left();
+            let nquota = wv_assert_ok!(Activity::own().kmem().quota()).remaining();
             wv_assert_eq!(t, nquota, before);
         }
     }
 
     let kmem = wv_assert_ok!(Activity::own().kmem().derive(quota / 2));
     {
-        let tile = wv_assert_ok!(Tile::get("clone"));
+        let tile = wv_assert_ok!(Tile::get("compat"));
         let _act = wv_assert_ok!(ChildActivity::new_with(
             tile,
             ActivityArgs::new("test").kmem(kmem.clone())
@@ -699,9 +700,9 @@ fn derive_kmem(t: &mut dyn WvTester) {
 
 fn derive_tile(t: &mut dyn WvTester) {
     let sel = Activity::own().alloc_sel();
-    let tile = wv_assert_ok!(Tile::get("clone"));
+    let tile = wv_assert_ok!(Tile::get("compat"));
     let oquota = wv_assert_ok!(tile.quota());
-    let oquote_eps = oquota.endpoints().left();
+    let oquote_eps = oquota.endpoints().remaining();
 
     // invalid dest selector
     wv_assert_err!(
@@ -726,12 +727,12 @@ fn derive_tile(t: &mut dyn WvTester) {
     {
         {
             let tile2 = wv_assert_ok!(tile.derive(Some(1), None, None));
-            let quota2 = wv_assert_ok!(tile2.quota()).endpoints().left();
-            let nquota = wv_assert_ok!(tile.quota()).endpoints().left();
+            let quota2 = wv_assert_ok!(tile2.quota()).endpoints().remaining();
+            let nquota = wv_assert_ok!(tile.quota()).endpoints().remaining();
             wv_assert_eq!(t, quota2, 1);
             wv_assert_eq!(t, nquota, oquote_eps - 1);
         }
-        let nquota = wv_assert_ok!(tile.quota()).endpoints().left();
+        let nquota = wv_assert_ok!(tile.quota()).endpoints().remaining();
         wv_assert_eq!(t, nquota, oquote_eps);
     }
 
@@ -814,7 +815,7 @@ fn get_sess(t: &mut dyn WvTester) {
     let _sess2 = wv_assert_ok!(ServerSession::new(srv.sel(), 1, 0x1234, false));
 
     // dummy activity that should receive the session
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let act = wv_assert_ok!(ChildActivity::new(tile, "test"));
 
     // invalid service selector
@@ -940,7 +941,7 @@ fn activity_ctrl(t: &mut dyn WvTester) {
 }
 
 fn exchange(t: &mut dyn WvTester) {
-    let tile = wv_assert_ok!(Tile::get("clone|own"));
+    let tile = wv_assert_ok!(Tile::get("compat|own"));
     let child = wv_assert_ok!(ChildActivity::new(tile, "test"));
 
     let sel = Activity::own().alloc_sel();

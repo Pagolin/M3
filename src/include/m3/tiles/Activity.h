@@ -67,42 +67,6 @@ public:
      */
     static OwnActivity &own() noexcept;
 
-    /**
-     * Puts the own activity to sleep until the next message arrives
-     */
-    static void sleep() noexcept {
-        sleep_for(TimeDuration::MAX);
-    }
-
-    /**
-     * Puts the own activity to sleep until the next message arrives or <nanos> nanoseconds have
-     * passed.
-     */
-    static void sleep_for(TimeDuration duration) noexcept {
-        if(env()->shared || duration != TimeDuration::MAX)
-            TMIF::wait(TCU::INVALID_EP, INVALID_IRQ, duration);
-#if !defined(__host__)
-        else if(env()->platform != Platform::HW)
-            TCU::get().wait_for_msg(TCU::INVALID_EP);
-#else
-        TCU::get().wait_for_msg(TCU::INVALID_EP, duration.as_nanos());
-#endif
-    }
-
-    /**
-     * Puts the own activity to sleep until the next message arrives on the given EP
-     */
-    static void wait_for_msg(epid_t ep) noexcept {
-        if(env()->shared)
-            TMIF::wait(ep, INVALID_IRQ, TimeDuration::MAX);
-#if !defined(__host__)
-        else if(env()->platform != Platform::HW)
-            TCU::get().wait_for_msg(ep);
-#else
-        TCU::get().wait_for_msg(TCU::INVALID_EP);
-#endif
-    }
-
     virtual ~Activity();
 
     /**

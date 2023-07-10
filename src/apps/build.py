@@ -1,6 +1,5 @@
 dirs = [
     'allocator',
-    'asciiplay',
     'bench',
     'bsdutils',
     'coreutils',
@@ -19,18 +18,21 @@ dirs = [
     'noop',
     'parchksum',
     'ping',
-    'plasma',
     'queue',
+    'resmngtest',
     'rusthello',
     'rustnettests',
     'ruststandalone',
+    'ruststdtest',
     'rustunittests',
     'shell',
+    'smoltcp_client',
     'spammer',
     'standalone',
     'timertest',
     'unittests',
 ]
+
 
 def build(gen, env):
     for d in dirs:

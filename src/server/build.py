@@ -1,16 +1,17 @@
 dirs = [
     'arith',
     'crypto',
-    'console',
     'disk',
     'm3fs',
     'net',
+    'smoltcp_server',
     'pager',
     'pipes',
     'root',
     'timer',
-    'vterm',
+    'vterm'
 ]
+
 
 def build(gen, env):
     for d in dirs:

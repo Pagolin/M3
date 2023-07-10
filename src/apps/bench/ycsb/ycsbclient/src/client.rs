@@ -20,16 +20,21 @@
 extern crate m3;
 
 use m3::{
+    cell::StaticRefCell,
     col::Vec,
-    com::Semaphore,
+    com::{recv_msg, RGateArgs, RecvGate, Semaphore, SendGate},
     env,
+    errors::{Code, Error},
+    mem::AlignedBuf,
     net::{
-        DGramSocket, DgramSocketArgs, Endpoint, IpAddr, Port, StreamSocket, StreamSocketArgs,
-        TcpSocket, UdpSocket,
+        DGramSocket, DgramSocketArgs, Endpoint, IpAddr, Port, Socket, StreamSocketArgs, TcpSocket,
+        UdpSocket,
     },
     println,
     rc::Rc,
     session::NetworkManager,
+    tiles::OwnActivity,
+    util::math::next_log2,
     vfs::{BufReader, OpenFlags},
 };
 
@@ -40,8 +45,9 @@ const VERBOSE: bool = false;
 fn usage() {
     let name = env::args().next().unwrap();
     println!("Usage: {} tcp <ip> <port> <workload> <repeats>", name);
+    println!("Usage: {} tcu <workload> <repeats>", name);
     println!("Usage: {} udp <port>", name);
-    m3::exit(1);
+    OwnActivity::exit_with(Code::InvArgs);
 }
 
 fn udp_receiver(nm: Rc<NetworkManager>, port: Port) {
@@ -136,14 +142,66 @@ fn tcp_sender(nm: Rc<NetworkManager>, ip: IpAddr, port: Port, wl: &str, repeats:
     }
 }
 
+fn tcu_sender(sgate: &SendGate, wl: &str, repeats: u32) {
+    // Mount fs to load binary data
+    m3::vfs::VFS::mount("/", "m3fs", "m3fs").expect("Failed to mount root filesystem on server");
+
+    let reply_gate = RecvGate::new_with(
+        RGateArgs::default()
+            .order(next_log2(2048))
+            .msg_order(next_log2(2048)),
+    )
+    .expect("Unable to create RecvGate");
+
+    static BUF: StaticRefCell<AlignedBuf<2048>> = StaticRefCell::new(AlignedBuf::new_zeroed());
+
+    for _ in 0..repeats {
+        // open workload file
+        let workload = m3::vfs::VFS::open(wl, OpenFlags::R).expect("Could not open file");
+
+        // Load workload info for the benchmark
+        let mut workload_buffer = BufReader::new(workload);
+        let workload_header = importer::WorkloadHeader::load_from_file(&mut workload_buffer);
+
+        for _ in 0..workload_header.number_of_operations {
+            let operation = importer::Package::load_as_bytes(&mut workload_buffer);
+            debug_assert!(importer::Package::from_bytes(&operation).is_ok());
+
+            if VERBOSE {
+                println!("Sending operation with {} bytes...", operation.len());
+            }
+
+            BUF.borrow_mut()[0..operation.len()].copy_from_slice(&operation);
+            sgate
+                .send_aligned(BUF.borrow().as_ptr(), operation.len(), &reply_gate)
+                .expect("send failed");
+
+            if VERBOSE {
+                println!("Receiving response...");
+            }
+
+            let reply = recv_msg(&reply_gate).expect("receive failed");
+
+            if VERBOSE {
+                println!("Received {} byte response.", reply.size());
+            }
+        }
+
+        let end_msg = b"ENDNOW";
+        BUF.borrow_mut()[0..end_msg.len()].copy_from_slice(end_msg);
+        sgate
+            .send_aligned(BUF.borrow().as_ptr(), end_msg.len(), &reply_gate)
+            .expect("send EOF failed");
+        recv_msg(&reply_gate).expect("receive failed");
+    }
+}
+
 #[no_mangle]
-pub fn main() -> i32 {
+pub fn main() -> Result<(), Error> {
     let args: Vec<_> = env::args().collect();
     if args.len() < 2 {
         usage();
     }
-
-    let nm = NetworkManager::new("net").expect("Could not connect to network manager");
 
     if args[1] == "udp" {
         if args.len() != 3 {
@@ -151,9 +209,11 @@ pub fn main() -> i32 {
         }
 
         let port = args[2].parse::<Port>().expect("Failed to parse port");
+
+        let nm = NetworkManager::new("net").expect("Could not connect to network manager");
         udp_receiver(nm, port);
     }
-    else {
+    else if args[1] == "tcp" {
         if args.len() != 6 {
             usage();
         }
@@ -163,8 +223,20 @@ pub fn main() -> i32 {
             .expect("Failed to parse IP address");
         let port = args[3].parse::<Port>().expect("Failed to parse port");
         let repeats = args[5].parse::<u32>().expect("Failed to parse repeats");
+
+        let nm = NetworkManager::new("net").expect("Could not connect to network manager");
         tcp_sender(nm, ip, port, args[4], repeats);
     }
+    else {
+        if args.len() != 4 {
+            usage();
+        }
 
-    0
+        let sgate = SendGate::new_named("req").expect("Unable to create SendGate req");
+
+        let repeats = args[3].parse::<u32>().expect("Failed to parse repeats");
+        tcu_sender(&sgate, args[2], repeats);
+    }
+
+    Ok(())
 }

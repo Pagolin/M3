@@ -1,9 +1,0 @@
-[package]
-name = "gem5log"
-version = "0.1.0"
-edition = "2018"
-
-[workspace]
-
-[dependencies]
-log = { version = "0.4.8", features = ["std"] }

@@ -21,13 +21,13 @@ use m3::errors::{Code, Error};
 use m3::goff;
 use m3::kif::{PageFlags, Perm};
 use m3::log;
-use m3::math;
 use m3::reply_vmsg;
 use m3::serialize::M3Deserializer;
 use m3::server::SessId;
 use m3::session::{MapFlags, ServerSession};
 use m3::tcu::Label;
 use m3::tiles::Activity;
+use m3::util::math;
 use resmng::childs;
 
 use crate::dataspace::DataSpace;
@@ -153,10 +153,14 @@ impl AddrSpace {
             self.ds[ds_idx.unwrap()].inherit(ds)?;
         }
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
-    pub fn pagefault(&mut self, is: &mut GateIStream<'_>) -> Result<(), Error> {
+    pub fn pagefault(
+        &mut self,
+        childs: &mut childs::ChildManager,
+        is: &mut GateIStream<'_>,
+    ) -> Result<(), Error> {
         let virt: goff = is.pop()?;
         let access = PageFlags::from_bits_truncate(is.pop()?) & !PageFlags::U;
         let access = Perm::from_bits_truncate(access.bits() as u32);
@@ -174,12 +178,17 @@ impl AddrSpace {
             return Err(Error::new(Code::InvArgs));
         }
 
-        self.pagefault_at(virt, access)?;
+        self.pagefault_at(childs, virt, access)?;
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
-    pub(crate) fn pagefault_at(&mut self, virt: goff, access: Perm) -> Result<(), Error> {
+    pub(crate) fn pagefault_at(
+        &mut self,
+        childs: &mut childs::ChildManager,
+        virt: goff,
+        access: Perm,
+    ) -> Result<(), Error> {
         if let Some(ds) = self.find_ds_mut(virt) {
             if (ds.perm() & access) != access {
                 log!(
@@ -192,7 +201,7 @@ impl AddrSpace {
                 return Err(Error::new(Code::InvArgs));
             }
 
-            ds.handle_pf(virt)
+            ds.handle_pf(childs, virt)
         }
         else {
             log!(crate::LOG_DEF, "No dataspace at {:#x}", virt);
@@ -265,7 +274,7 @@ impl AddrSpace {
 
         self.map_anon_with(virt, len, perm, flags)?;
 
-        reply_vmsg!(is, Code::None as u32, virt)
+        reply_vmsg!(is, Code::Success, virt)
     }
 
     pub(crate) fn map_anon_with(
@@ -356,13 +365,13 @@ impl AddrSpace {
             return Err(Error::new(Code::NotFound));
         }
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
     pub fn close(&mut self, is: &mut GateIStream<'_>) -> Result<(), Error> {
         log!(crate::LOG_DEF, "[{}] pager::close()", self.id());
 
-        is.reply_error(Code::None)
+        is.reply_error(Code::Success)
     }
 
     fn check_map_args(&self, virt: goff, len: goff, perm: Perm) -> Result<(), Error> {

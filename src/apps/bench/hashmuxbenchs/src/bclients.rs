@@ -21,15 +21,16 @@ use m3::com::{
 };
 use m3::crypto::{HashAlgorithm, HashType};
 use m3::errors::Error;
-use m3::mem::MsgBuf;
+use m3::mem;
 use m3::serialize::{Deserialize, Serialize};
 use m3::session::HashSession;
+use m3::tcu;
 use m3::tcu::INVALID_EP;
 use m3::test::WvTester;
 use m3::tiles::{Activity, ChildActivity, RunningActivity, RunningProgramActivity, Tile};
 use m3::time::{CycleDuration, CycleInstant, Duration, Results};
+use m3::util::math;
 use m3::{format, log, println, send_recv, wv_assert_ok, wv_run_test};
-use m3::{math, mem, tcu};
 
 pub fn run(t: &mut dyn WvTester) {
     wv_run_test!(t, hashmux_clients);
@@ -37,12 +38,10 @@ pub fn run(t: &mut dyn WvTester) {
 
 fn _create_rgate(max_clients: usize) -> RecvGate {
     let msg_size = math::next_log2(mem::size_of::<tcu::Header>() + mem::size_of::<u64>());
-    let mut rgate = wv_assert_ok!(RecvGate::new(
+    wv_assert_ok!(RecvGate::new(
         math::next_log2(max_clients) + msg_size,
         msg_size
-    ));
-    wv_assert_ok!(rgate.activate());
-    rgate
+    ))
 }
 
 struct Client {
@@ -100,7 +99,7 @@ where
             }
 
             // Notify that the run is complete
-            wv_assert_ok!(sgate.send(&MsgBuf::borrow_def(), &rgate));
+            wv_assert_ok!(sgate.send(&mem::MsgBuf::borrow_def(), &rgate));
 
             for num in 1.. {
                 if fun(&hash).is_err() {
@@ -130,7 +129,7 @@ where
         }
 
         // Notify that the run is complete
-        wv_assert_ok!(sgate.send(&MsgBuf::borrow_def(), &rgate));
+        wv_assert_ok!(sgate.send(&mem::MsgBuf::borrow_def(), &rgate));
 
         // Keep runnning for other clients that need more time
         for num in 1.. {
@@ -195,7 +194,7 @@ fn _start_client(params: ClientParams, rgate: &RecvGate, mgate: &MemGate) -> Cli
                 res,
                 params.size as f32 / res.avg().as_raw() as f32
             );
-            0
+            Ok(())
         })),
     }
 }
@@ -215,7 +214,7 @@ where
     let res = action(&mut msgs);
 
     // Reply to unblock clients again
-    let empty_msg = MsgBuf::borrow_def();
+    let empty_msg = mem::MsgBuf::borrow_def();
     for mut msg in msgs {
         wv_assert_ok!(msg.reply(&empty_msg));
     }

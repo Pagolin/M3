@@ -122,6 +122,7 @@ impl<'a> smoltcp::phy::Device<'a> for AXIEthDevice {
     }
 }
 
+
 pub struct RxToken {
     buffer: Vec<u8>,
 }

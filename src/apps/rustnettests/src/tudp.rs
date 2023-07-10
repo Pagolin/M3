@@ -15,7 +15,7 @@
 
 use m3::com::Semaphore;
 use m3::errors::{Code, Error};
-use m3::net::{DGramSocket, DgramSocketArgs, Endpoint, State, UdpSocket, MTU};
+use m3::net::{DGramSocket, DgramSocketArgs, Endpoint, Socket, State, UdpSocket, MTU};
 use m3::session::NetworkManager;
 use m3::test::WvTester;
 use m3::time::TimeDuration;
@@ -136,7 +136,7 @@ fn data(t: &mut dyn WvTester) {
                 &mut recv_buf,
                 TIMEOUT,
             ) {
-                wv_assert_eq!(t, *pkt_size, recv_size as usize);
+                wv_assert_eq!(t, *pkt_size, recv_size);
                 wv_assert_eq!(t, src, dest);
                 wv_assert_eq!(t, &recv_buf[0..recv_size], &send_buf[0..recv_size]);
                 break;

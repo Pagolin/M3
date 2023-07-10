@@ -17,13 +17,13 @@ use m3::cap::Selector;
 use m3::cell::{RefCell, StaticCell};
 use m3::cfg;
 use m3::com::MemGate;
-use m3::errors::Error;
+use m3::errors::{Code, Error};
 use m3::goff;
 use m3::kif;
 use m3::log;
-use m3::math;
 use m3::rc::Rc;
 use m3::session::{ClientSession, MapFlags, M3FS};
+use m3::util::math;
 use resmng::childs;
 
 use crate::physmem::PhysMem;
@@ -167,7 +167,11 @@ impl DataSpace {
         self.regions.populate(sel);
     }
 
-    pub fn handle_pf(&mut self, virt: goff) -> Result<(), Error> {
+    pub fn handle_pf(
+        &mut self,
+        childs: &mut childs::ChildManager,
+        virt: goff,
+    ) -> Result<(), Error> {
         let pf_off = math::round_dn(virt - self.virt, cfg::PAGE_SIZE as goff);
         let reg = self.regions.pagefault(pf_off);
 
@@ -202,8 +206,9 @@ impl DataSpace {
                 // if it's writable and should not be shared, create a copy
                 if !self.flags.contains(MapFlags::SHARED) && self.perms.contains(kif::Perm::W) {
                     let src = MemGate::new_owned_bind(sel);
-                    let mut childs = childs::borrow_mut();
-                    let child = childs.child_by_id_mut(self.child).unwrap();
+                    let child = childs
+                        .child_by_id_mut(self.child)
+                        .ok_or_else(|| Error::new(Code::ActivityGone))?;
                     let mgate = child.alloc_local(reg.size(), kif::Perm::RWX)?;
                     let mem = Rc::new(RefCell::new(PhysMem::new((self.owner, self.virt), mgate)?));
                     reg.set_mem(mem);
@@ -245,8 +250,9 @@ impl DataSpace {
                     reg.virt() + reg.size() - 1
                 );
 
-                let mut childs = childs::borrow_mut();
-                let child = childs.child_by_id_mut(self.child).unwrap();
+                let child = childs
+                    .child_by_id_mut(self.child)
+                    .ok_or_else(|| Error::new(Code::ActivityGone))?;
                 let mgate = child.alloc_local(reg.size(), kif::Perm::RWX)?;
                 reg.set_mem(Rc::new(RefCell::new(PhysMem::new(
                     (self.owner, self.virt),
@@ -261,7 +267,7 @@ impl DataSpace {
         }
         // if we have memory, but COW is in progress
         else if reg.is_cow() {
-            reg.handle_cow(self.perms)?;
+            reg.handle_cow(childs, self.perms)?;
         }
         else if reg.is_mapped() {
             // nothing to do

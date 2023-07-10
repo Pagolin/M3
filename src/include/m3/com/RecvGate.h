@@ -133,11 +133,9 @@ public:
      * Binds the receive gate at selector <sel>.
      *
      * @param sel the capability selector
-     * @param order the size of the buffer (2^<order> bytes)
-     * @param msgorder the size of messages within the buffer (2^<msgorder> bytes)
      * @return the receive gate
      */
-    static RecvGate bind(capsel_t sel, uint order, uint msgorder) noexcept;
+    static RecvGate bind(capsel_t sel) noexcept;
 
     RecvGate(const RecvGate &) = delete;
     RecvGate &operator=(const RecvGate &) = delete;
@@ -161,7 +159,8 @@ public:
     /**
      * @return the number of slots in the receive buffer
      */
-    uint slots() const noexcept {
+    uint slots() const {
+        fetch_buffer_size();
         return 1U << (_order - _msgorder);
     }
 
@@ -204,12 +203,12 @@ public:
      *
      * @return true if there are unread messages
      */
-    bool has_msgs() const;
+    bool has_msgs();
 
     /**
      * Suspend the activity until a message arrives on this RecvGate.
      */
-    void wait_for_msg() const;
+    void wait_for_msg();
 
     /**
      * Fetches a message from this receive gate and returns it, if there is any.
@@ -233,7 +232,19 @@ public:
      * @param reply the reply message to send
      * @param msg the message to reply to
      */
-    void reply(const MsgBuf &reply, const TCU::Message *msg);
+    void reply(const MsgBuf &reply, const TCU::Message *msg) {
+        reply_aligned(reply.bytes(), reply.size(), msg);
+    }
+
+    /**
+     * Sends <reply> as a reply to the message <msg>, assuming that <reply> is properly aligned. The
+     * message address needs to be 16-byte aligned and the message cannot contain a page boundary.
+     *
+     * @param reply the reply message to send
+     * @param len the length of the reply
+     * @param msg the message to reply to
+     */
+    void reply_aligned(const void *reply, size_t len, const TCU::Message *msg);
 
     /**
      * Marks the given message as 'read', allowing the TCU to overwrite it with a new message.
@@ -250,14 +261,16 @@ public:
     void drop_msgs_with(label_t label) noexcept;
 
 private:
+    void fetch_buffer_size() const;
+
     void set_ep(epid_t ep) {
         Gate::set_ep(new EP(EP::bind(ep)));
     }
 
     RecvBuf *_buf;
     size_t _buf_addr;
-    uint _order;
-    uint _msgorder;
+    mutable uint _order;
+    mutable uint _msgorder;
     msghandler_t _handler;
     std::unique_ptr<RecvGateWorkItem> _workitem;
     static RecvGate _syscall;

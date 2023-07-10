@@ -162,7 +162,7 @@ impl State {
 
     fn receive_acks(&mut self) {
         for n in &mut self.notify_gates {
-            if let Some(msg) = n.rgate.fetch() {
+            if let Ok(msg) = n.rgate.fetch() {
                 n.rgate.ack_msg(msg).unwrap();
                 // try again to send events, if there are some
                 n.send_events();
@@ -185,7 +185,7 @@ impl State {
         sgate: Selector,
         promised_events: Rc<Cell<FileEvent>>,
     ) -> Result<(), Error> {
-        let mut rgate = RecvGate::new_with(RGateArgs::default().order(6).msg_order(6))?;
+        let rgate = RecvGate::new_with(RGateArgs::default().order(6).msg_order(6))?;
         rgate.activate()?;
 
         self.notify_gates.push(NotifyGate::new(
@@ -278,7 +278,7 @@ impl State {
                     amount,
                     pos
                 );
-                reply_vmsg_late!(rgate, req.msg, Code::None as u32, pos, amount).ok();
+                reply_vmsg_late!(rgate, req.msg, Code::Success, pos, amount).ok();
 
                 // remove write request
                 self.pending_reads.pop();
@@ -288,7 +288,7 @@ impl State {
             else if self.flags.contains(Flags::WRITE_EOF) {
                 // report EOF
                 log!(crate::LOG_DEF, "[{}] pipes::late_read(): EOF", req.chan);
-                reply_vmsg_late!(rgate, req.msg, Code::None as u32, 0usize, 0usize).ok();
+                reply_vmsg_late!(rgate, req.msg, Code::Success, 0usize, 0usize).ok();
 
                 // remove write request
                 self.pending_reads.pop();
@@ -317,7 +317,7 @@ impl State {
         if self.flags.contains(Flags::READ_EOF) {
             while let Some(req) = self.pending_writes.pop() {
                 log!(crate::LOG_DEF, "[{}] pipes::late_write(): EOF", req.chan);
-                reply_vmsg_late!(rgate, req.msg, Code::EndOfFile as u32).ok();
+                reply_vmsg_late!(rgate, req.msg, Code::EndOfFile).ok();
             }
         }
         // is there a pending write request?
@@ -334,7 +334,7 @@ impl State {
                     amount,
                     pos
                 );
-                reply_vmsg_late!(rgate, req.msg, Code::None as u32, pos, amount).ok();
+                reply_vmsg_late!(rgate, req.msg, Code::Success, pos, amount).ok();
 
                 // remove write request
                 self.pending_writes.pop();

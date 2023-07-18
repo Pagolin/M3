@@ -30,7 +30,6 @@ mod rbufs;
 mod rgate;
 mod sem;
 mod sgate;
-pub mod channel;
 
 pub use self::ep::{EPArgs, EP};
 pub use self::epmng::EpMng;

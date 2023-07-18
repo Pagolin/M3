@@ -28,10 +28,6 @@ use m3::util::math;
 
 use m3::{run_with_channels, send_vmsg, wv_assert_eq, wv_assert_ok, wv_run_test};
 
-use m3::com::channel;
-use m3::activity;
-use m3::errors::Error;
-
 pub fn run(t: &mut dyn WvTester) {
     wv_run_test!(t, run_stop);
     wv_run_test!(t, run_arguments);
@@ -142,7 +138,6 @@ fn run_send_receive(t: &mut dyn WvTester) {
     wv_assert_eq!(t, act.wait(), Ok(Code::NoFreeTile));
 }
 
-
 fn run_send_receive_chan(t: &mut dyn WvTester) {
     let (tx, rx) = wv_assert_ok!(chan::sync_channel());
     let (res_tx, res_rx) = wv_assert_ok!(chan::sync_channel());
@@ -198,7 +193,6 @@ fn run_send_receive_chan_macro(t: &mut dyn WvTester) {
     wv_assert_ok!(tx.send::<u32>(42));
     let res: i32 = wv_assert_ok!(res_rx.recv());
     wv_assert_eq!(t, res, 42 + 5);
-
 
     wv_assert_eq!(t, act.wait(), Ok(Code::Success));
 }

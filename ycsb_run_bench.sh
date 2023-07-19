@@ -2,8 +2,8 @@
 
 inputdir=$(readlink -f input)
 
-# falls cih parallisieren will
-# . tools/jobs.sh
+# tools to run parallel jobs
+. tools/jobs.sh
 
 export M3_BUILD=release
 export M3_TARGET=gem5
@@ -28,16 +28,17 @@ bench_succeeded() {
 }
 
 run_bench() {
-    dirname=m3-$2-"results"
+    dirname=m3-$2-"rewritten-results"
     export M3_OUT=$1/$dirname
     mkdir -p $M3_OUT
 
     /bin/echo -e "\e[1mStarting $dirname\e[0m"
 
+    # job_started
     export M3_WORKLOAD=/ycsb_workloads/$2-workload.wl
     ./ycsb-boot-gen.sh > $M3_OUT/boot.gen.xml
 
-    # job_started
+
     ./b run $M3_OUT/boot.gen.xml 2>&1 | tee $M3_OUT/output.txt
 
     sed --in-place -e 's/\x1b\[0m//g' $M3_OUT/output.txt
@@ -52,14 +53,14 @@ run_bench() {
 
 }
 
-# zum parallelisieren siehe : https://gitlab.com/Nils-TUD/m3bench/-/blob/master/benchs/m3-micro.sh
-# wichtig 'job_started' wenn was auch immer der job machen soll losgelaufen ist.
+# parallel run example at : https://gitlab.com/Nils-TUD/m3bench/-/blob/master/benchs/m3-micro.sh
+# important 'job_started' when, what ever the job should to started
 
 export M3_YCSB_REPEATS=10
 
 # jobs_init 2
 # loop the workloads
-for wl in read insert; do # read insert update scan mixed ; do
+for wl in read insert update scan mixed ; do
     run_bench $1 ycsb $wl # jobs_submit run_bench $1 ycsb $wl
 done
 
